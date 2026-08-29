@@ -27,6 +27,7 @@ interface ProductRow {
 }
 
 function rowToProduct(row: ProductRow): Product {
+  const parse = (v: any) => (typeof v === 'string' ? (v ? JSON.parse(v) : undefined) : v);
   return {
     id: row.id,
     slug: row.slug,
@@ -40,14 +41,14 @@ function rowToProduct(row: ProductRow): Product {
     featured: Boolean(row.featured),
     tag: row.tag ?? undefined,
     weightKg: row.weight_kg ?? undefined,
-    images: JSON.parse(row.images || '[]'),
-    activeIngredients: row.active_ingredients ? JSON.parse(row.active_ingredients) : undefined,
+    images: parse(row.images) || [],
+    activeIngredients: parse(row.active_ingredients),
     short_desc: row.short_desc,
     description: row.description,
     composition: row.composition,
     usage: row.usage_text,
     dosage: row.dosage ?? undefined,
-    suitableCrops: row.suitable_crops ? JSON.parse(row.suitable_crops) : undefined,
+    suitableCrops: parse(row.suitable_crops),
   };
 }
 
