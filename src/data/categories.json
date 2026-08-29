@@ -1,0 +1,72 @@
+[
+  {
+    "id": "pupuk-kimia",
+    "slug": "pupuk-kimia",
+    "name": "Pupuk Kimia / Anorganik",
+    "shortName": "Kimia",
+    "description": "Pupuk tunggal dan majemuk sintetis untuk pemupukan dasar & susulan cepat serap.",
+    "iconName": "Atom",
+    "badgeColor": "bg-blue-100 text-blue-800 border-blue-200",
+    "accentBg": "bg-blue-50 hover:bg-blue-100 border-blue-200 text-blue-900"
+  },
+  {
+    "id": "pupuk-organik",
+    "slug": "pupuk-organik",
+    "name": "Pupuk Organik & Kompos",
+    "shortName": "Organik",
+    "description": "Menyuburkan tanah, memperbaiki struktur mikroorganisme, dan aman ramah lingkungan.",
+    "iconName": "Sprout",
+    "badgeColor": "bg-emerald-100 text-emerald-800 border-emerald-200",
+    "accentBg": "bg-emerald-50 hover:bg-emerald-100 border-emerald-200 text-emerald-900"
+  },
+  {
+    "id": "pupuk-cair",
+    "slug": "pupuk-cair",
+    "name": "Pupuk Hayati & Cair (POC)",
+    "shortName": "Cair / POC",
+    "description": "Pupuk daun dan nutrisi cair cepat serap untuk merangsang bunga, buah, dan perakaran.",
+    "iconName": "Droplet",
+    "badgeColor": "bg-teal-100 text-teal-800 border-teal-200",
+    "accentBg": "bg-teal-50 hover:bg-teal-100 border-teal-200 text-teal-900"
+  },
+  {
+    "id": "pestisida",
+    "slug": "pestisida",
+    "name": "Pestisida & Perlindungan Tanaman",
+    "shortName": "Pestisida",
+    "description": "Insektisida, fungisida, dan herbisida terdaftar untuk perlindungan hama & jamur.",
+    "iconName": "ShieldCheck",
+    "badgeColor": "bg-amber-100 text-amber-800 border-amber-200",
+    "accentBg": "bg-amber-50 hover:bg-amber-100 border-amber-200 text-amber-900"
+  },
+  {
+    "id": "media-tanam",
+    "slug": "media-tanam",
+    "name": "Media Tanam & Pembenah Tanah",
+    "shortName": "Media Tanam",
+    "description": "Tanah subur siap pakai, sekam bakar, cocopeat, dan kapur pertanian dolomit.",
+    "iconName": "Layers",
+    "badgeColor": "bg-stone-100 text-stone-800 border-stone-200",
+    "accentBg": "bg-stone-50 hover:bg-stone-100 border-stone-200 text-stone-900"
+  },
+  {
+    "id": "nutrisi-mikro",
+    "slug": "nutrisi-mikro",
+    "name": "Nutrisi Mikro & Kalsium",
+    "shortName": "Nutrisi Mikro",
+    "description": "Suplemen boron, kalsium, magnesium, dan unsur mikro pencegah rontok bunga & buah.",
+    "iconName": "Sparkles",
+    "badgeColor": "bg-purple-100 text-purple-800 border-purple-200",
+    "accentBg": "bg-purple-50 hover:bg-purple-100 border-purple-200 text-purple-900"
+  },
+  {
+    "id": "benih",
+    "slug": "benih",
+    "name": "Benih & Bibit Tanaman",
+    "shortName": "Benih",
+    "description": "Benih unggul padi, jagung, cabai, sayuran, dan tanaman hortikultura bersertifikat.",
+    "iconName": "Wheat",
+    "badgeColor": "bg-yellow-100 text-yellow-800 border-yellow-200",
+    "accentBg": "bg-yellow-50 hover:bg-yellow-100 border-yellow-200 text-yellow-900"
+  }
+]
