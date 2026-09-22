@@ -225,6 +225,7 @@ export default function AdminPage() {
   // Product image state
   const [pendingImages, setPendingImages] = useState<PendingProductImage[]>([]);
   const [draggedImageId, setDraggedImageId] = useState('');
+  const [selectedImageId, setSelectedImageId] = useState('');
   const [imageSearch, setImageSearch] = useState('');
   const [savingImageFor, setSavingImageFor] = useState('');
 
@@ -413,6 +414,7 @@ export default function AdminPage() {
       );
       setPendingImages((prev) => prev.filter((item) => item.id !== image.id));
       URL.revokeObjectURL(image.previewUrl);
+      if (selectedImageId === image.id) setSelectedImageId('');
       flash(`Gambar ditambahkan ke ${product.name}`);
     } catch (e: unknown) {
       flash(e instanceof Error ? e.message : 'Gagal menyimpan gambar', true);
@@ -661,7 +663,7 @@ export default function AdminPage() {
             <div>
               <h2 className="font-black text-xl text-stone-900">Gambar Produk</h2>
               <p className="text-sm text-stone-500 mt-1">
-                Upload JPG/PNG/WebP, sistem mengubahnya ke WebP lalu seret gambar ke produk yang sesuai.
+                Upload JPG/PNG/WebP, pilih gambar lalu klik produk. Bisa juga seret gambar ke produk.
               </p>
             </div>
 
@@ -670,7 +672,9 @@ export default function AdminPage() {
                 <div className="p-4 border-b border-stone-200 bg-stone-50 flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
                   <div>
                     <h3 className="font-bold text-stone-900 text-sm">Daftar Produk</h3>
-                    <p className="text-xs text-stone-500">Drop gambar ke salah satu produk.</p>
+                    <p className="text-xs text-stone-500">
+                      {selectedImageId ? 'Klik produk tujuan untuk menyimpan gambar terpilih.' : 'Pilih gambar di kanan, atau drop gambar ke produk.'}
+                    </p>
                   </div>
                   <input
                     value={imageSearch}
@@ -685,6 +689,7 @@ export default function AdminPage() {
                     .map((product) => (
                       <div
                         key={product.id}
+                        onClick={() => selectedImageId && attachImageToProduct(product, selectedImageId)}
                         onDragOver={(e) => e.preventDefault()}
                         onDrop={(e) => {
                           e.preventDefault();
@@ -692,7 +697,7 @@ export default function AdminPage() {
                           attachImageToProduct(product, id);
                         }}
                         className={`p-3 flex items-center gap-3 transition-colors ${
-                          draggedImageId ? 'hover:bg-emerald-50' : 'hover:bg-stone-50'
+                          selectedImageId || draggedImageId ? 'cursor-pointer hover:bg-emerald-50' : 'hover:bg-stone-50'
                         }`}
                       >
                         <div className="w-14 h-14 rounded-xl bg-stone-100 border border-stone-200 overflow-hidden shrink-0">
@@ -750,6 +755,7 @@ export default function AdminPage() {
                         onClick={() => {
                           pendingImages.forEach((image) => URL.revokeObjectURL(image.previewUrl));
                           setPendingImages([]);
+                          setSelectedImageId('');
                         }}
                         className="text-xs font-bold text-red-600 hover:text-red-700"
                       >
@@ -772,7 +778,12 @@ export default function AdminPage() {
                             e.dataTransfer.setData('text/plain', image.id);
                           }}
                           onDragEnd={() => setDraggedImageId('')}
-                          className="rounded-2xl border border-stone-200 overflow-hidden bg-white cursor-grab active:cursor-grabbing shadow-xs"
+                          onClick={() => setSelectedImageId((current) => current === image.id ? '' : image.id)}
+                          className={`rounded-2xl border overflow-hidden bg-white cursor-pointer shadow-xs transition-all ${
+                            selectedImageId === image.id
+                              ? 'border-tani-600 ring-2 ring-tani-200'
+                              : 'border-stone-200 hover:border-tani-300'
+                          }`}
                         >
                           <div className="aspect-square bg-stone-100">
                             <img src={image.previewUrl} alt="" className="w-full h-full object-cover" />
@@ -780,9 +791,11 @@ export default function AdminPage() {
                           <div className="p-2 flex items-start justify-between gap-2">
                             <p className="text-[11px] font-semibold text-stone-600 line-clamp-2">{image.name}</p>
                             <button
-                              onClick={() => {
+                              onClick={(e) => {
+                                e.stopPropagation();
                                 URL.revokeObjectURL(image.previewUrl);
                                 setPendingImages((prev) => prev.filter((item) => item.id !== image.id));
+                                if (selectedImageId === image.id) setSelectedImageId('');
                               }}
                               className="p-1 text-stone-400 hover:text-red-500 hover:bg-red-50 rounded-lg"
                               title="Hapus dari antrean"

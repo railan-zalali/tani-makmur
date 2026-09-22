@@ -5,12 +5,10 @@ const BUCKET = 'product-images';
 
 function getAdminSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  if (!url || !key) throw new Error('Supabase env belum lengkap');
+  if (!url) throw new Error('NEXT_PUBLIC_SUPABASE_URL belum diatur');
+  if (!key) throw new Error('SUPABASE_SERVICE_ROLE_KEY belum diatur di server');
   return createClient(url, key);
 }
 
@@ -84,6 +82,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ url: publicUrl });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Upload gambar gagal';
+    console.error('POST /api/product-images error:', err);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
