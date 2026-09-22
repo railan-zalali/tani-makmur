@@ -48,8 +48,6 @@ export async function POST(req: NextRequest) {
     if (!id || !name || !short_name) {
       return NextResponse.json({ error: 'id, name, short_name wajib diisi' }, { status: 400 });
     }
-
-
     const { error } = await supabase.from('categories').upsert({
       id, name, short_name, description, icon_name, badge_color, bg_color, icon_color, sort_order
     });
