@@ -9,6 +9,13 @@ function getAdminSupabase() {
 
   if (!url) throw new Error('NEXT_PUBLIC_SUPABASE_URL belum diatur');
   if (!key) throw new Error('SUPABASE_SERVICE_ROLE_KEY belum diatur di server');
+  const [, payload] = key.split('.');
+  const role = payload
+    ? JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')).role
+    : '';
+  if (role !== 'service_role') {
+    throw new Error('SUPABASE_SERVICE_ROLE_KEY harus berisi service_role key, bukan anon/publishable key');
+  }
   return createClient(url, key);
 }
 

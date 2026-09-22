@@ -4,6 +4,33 @@ import { Product } from '@/types/product';
 
 import { supabase } from '@/lib/supabase';
 
+function inferCategory(product: Product): Product['category'] {
+  if (String(product.category ?? '').trim()) return product.category;
+
+  const text = [
+    product.name,
+    product.tag,
+    product.activeIngredients?.join(' '),
+    product.short_desc,
+    product.composition,
+  ].map((v) => String(v ?? '').toLowerCase()).join(' ');
+
+  if (text.includes('benih')) return 'benih';
+  if (/klerat|racun tikus|brodifakum/.test(text)) return 'rodentisida';
+  if (/toxiput|metaldehida|siput|keong/.test(text)) return 'moluskisida';
+  if (/samite|piridaben/.test(text)) return 'akarisida';
+  if (/trico|trichoderma/.test(text)) return 'fungisida-hayati';
+  if (/agristick|glumon|metalik|perekat|perata/.test(text)) return 'perekat';
+  if (/atonik|gib gro|giberelat|rootune|ambition|asam amino|fulvat|zpt|hormon/.test(text)) return 'zpt';
+  if (/asam humat|dolomit|pembenah|poshmic|powersoil|kalsium magnesium karbonat/.test(text)) return 'pembenah tanah';
+  if (/em 4|bakteri fermentasi/.test(text)) return 'pupuk-hayati';
+  if (/boron|calnit|calsium|calcium|kalsium|magnesium|mikro|zn|fe|cu|mn|vitaflex|folirfos|mag - s|mag s/.test(text)) return 'pupuk-mikro';
+  if (/gandasil/.test(text)) return 'pupuk-daun';
+  if (/pupuk organik|molase|tetes tebu|bahan organik/.test(text)) return 'pupuk-organik';
+  if (/npk|kcl|kno3|tsp|za |za non|nitrea|urea|fertiphos|ultradap|map|mkp|sop|kalium|fosfat|phosphate|phospat|amonium|nitrogen/.test(text)) return 'pupuk-kimia';
+  return 'pupuk';
+}
+
 // Bulk import: replaces all existing products
 export async function POST(req: NextRequest) {
   const pin = req.headers.get('x-admin-pin');
@@ -20,7 +47,8 @@ export async function POST(req: NextRequest) {
     // Existing category IDs in DB
     const { data: existingRows } = await supabase.from('categories').select('id');
     const existingIds = new Set((existingRows || []).map(r => r.id));
-    const newCategories = Array.from(new Set(products.map((p) => p.category))).filter(
+    const normalisedProducts = products.map((p) => ({ ...p, category: inferCategory(p) }));
+    const newCategories = Array.from(new Set(normalisedProducts.map((p) => p.category))).filter(
       (id) => !existingIds.has(id)
     );
 
@@ -38,7 +66,7 @@ export async function POST(req: NextRequest) {
     // Supabase needs a filter to delete all, e.g. neq id something impossible, or just not eq null
     await supabase.from('products').delete().neq('id', 'impossible-id');
     
-    const insertData = products.map((p, i) => ({
+    const insertData = normalisedProducts.map((p, i) => ({
       id: p.id, slug: p.slug, name: p.name, category: p.category, price: p.price, unit: p.unit,
       min_order: p.minOrder ?? null, stock_label: p.stock_label, is_available: p.isAvailable,
       featured: p.featured, tag: p.tag ?? null, weight_kg: p.weightKg ?? null,

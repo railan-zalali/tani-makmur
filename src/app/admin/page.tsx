@@ -164,6 +164,34 @@ function normalizeCategory(raw: unknown): Product['category'] {
   return CATEGORY_MAP[key] ?? (key as Product['category']) ?? 'pupuk-kimia';
 }
 
+function inferCategory(row: Record<string, unknown>): Product['category'] {
+  const explicit = String(row.category ?? '').trim();
+  if (explicit) return normalizeCategory(explicit);
+
+  const text = [
+    row.name,
+    row.tag,
+    row.activeIngredients,
+    row.short_desc,
+    row.composition,
+  ].map((v) => String(v ?? '').toLowerCase()).join(' ');
+
+  if (text.includes('benih')) return 'benih';
+  if (/klerat|racun tikus|brodifakum/.test(text)) return 'rodentisida';
+  if (/toxiput|metaldehida|siput|keong/.test(text)) return 'moluskisida';
+  if (/samite|piridaben/.test(text)) return 'akarisida';
+  if (/trico|trichoderma/.test(text)) return 'fungisida-hayati';
+  if (/agristick|glumon|metalik|perekat|perata/.test(text)) return 'perekat';
+  if (/atonik|gib gro|giberelat|rootune|ambition|asam amino|fulvat|zpt|hormon/.test(text)) return 'zpt';
+  if (/asam humat|dolomit|pembenah|poshmic|powersoil|kalsium magnesium karbonat/.test(text)) return 'pembenah tanah';
+  if (/em 4|bakteri fermentasi/.test(text)) return 'pupuk-hayati';
+  if (/boron|calnit|calsium|calcium|kalsium|magnesium|mikro|zn|fe|cu|mn|vitaflex|folirfos|mag - s|mag s/.test(text)) return 'pupuk-mikro';
+  if (/gandasil/.test(text)) return 'pupuk-daun';
+  if (/pupuk organik|molase|tetes tebu|bahan organik/.test(text)) return 'pupuk-organik';
+  if (/npk|kcl|kno3|tsp|za |za non|nitrea|urea|fertiphos|ultradap|map|mkp|sop|kalium|fosfat|phosphate|phospat|amonium|nitrogen/.test(text)) return 'pupuk-kimia';
+  return 'pupuk';
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function sheetRowToProduct(row: Record<string, any>): Product {
   const bool = (v: unknown) => String(v).toUpperCase() === 'TRUE' || v === true || v === 1;
@@ -179,7 +207,7 @@ function sheetRowToProduct(row: Record<string, any>): Product {
     id,
     slug: id,
     name,
-    category: normalizeCategory(row.category),
+    category: inferCategory(row),
     price: Number(row.price) || 0,
     unit: String(row.unit ?? ''),
     stock_label: (row.stock_label as Product['stock_label']) ?? 'Tersedia',
