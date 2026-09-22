@@ -10,6 +10,7 @@ import {
 import { Product } from '@/types/product';
 import Link from 'next/link';
 import { useCategories, CategoryDef } from '@/context/CategoryContext';
+import { convertToWebp, applyWatermark } from '@/utils/imageUtils';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Tab = 'products' | 'images' | 'import' | 'seed' | 'kategori';
@@ -70,43 +71,26 @@ function webpName(name: string) {
   return `${generateId(fileBaseName(name)) || 'produk'}.webp`;
 }
 
-function convertImageToWebp(file: File): Promise<PendingProductImage> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    const sourceUrl = URL.createObjectURL(file);
-    img.onload = () => {
-      const maxSide = 1200;
-      const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.round(img.width * scale);
-      canvas.height = Math.round(img.height * scale);
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        URL.revokeObjectURL(sourceUrl);
-        reject(new Error('Browser tidak bisa memproses gambar ini'));
-        return;
-      }
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      canvas.toBlob((blob) => {
-        URL.revokeObjectURL(sourceUrl);
-        if (!blob) {
-          reject(new Error(`Gagal mengubah ${file.name} ke WebP`));
-          return;
-        }
-        resolve({
-          id: `${file.name}-${file.lastModified}-${Math.random().toString(36).slice(2)}`,
-          name: webpName(file.name),
-          previewUrl: URL.createObjectURL(blob),
-          blob,
-        });
-      }, 'image/webp', 0.82);
+async function convertImageToWebp(file: File): Promise<PendingProductImage> {
+  try {
+    const webpBlob = await convertToWebp(file, 0.82);
+    // ponytail: implement watermark here centrally before upload
+    const watermarkedBlob = await applyWatermark(webpBlob, {
+      logoUrl: '/LOGO.png',
+      position: 'center', // Can be customized
+      opacity: 0.15,      // Subtle opacity
+      sizeRatio: 0.35     // 35% of image width
+    });
+
+    return {
+      id: `${file.name}-${file.lastModified}-${Math.random().toString(36).slice(2)}`,
+      name: webpName(file.name),
+      previewUrl: URL.createObjectURL(watermarkedBlob),
+      blob: watermarkedBlob,
     };
-    img.onerror = () => {
-      URL.revokeObjectURL(sourceUrl);
-      reject(new Error(`${file.name} bukan gambar yang valid`));
-    };
-    img.src = sourceUrl;
-  });
+  } catch (err) {
+    throw new Error(err instanceof Error ? err.message : `Gagal memproses ${file.name}`);
+  }
 }
 
 // Normalise free-text category from Excel → valid ProductCategory slug
@@ -285,12 +269,25 @@ export default function AdminPage() {
   }, [isAuthenticated, loadProducts]);
 
   // ── Auth ──────────────────────────────────────────────────────────────────
-  const handleLogin = () => {
+  const handleLogin = async () => {
     if (!pinInput.trim()) { setPinError('Masukkan PIN admin'); return; }
-    setPin(pinInput);
-    sessionStorage.setItem('admin_pin', pinInput);
-    setIsAuthenticated(true);
-    setPinError('');
+    try {
+      const res = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin: pinInput })
+      });
+      if (!res.ok) {
+        setPinError('PIN yang dimasukkan salah');
+        return;
+      }
+      setPin(pinInput);
+      sessionStorage.setItem('admin_pin', pinInput);
+      setIsAuthenticated(true);
+      setPinError('');
+    } catch {
+      setPinError('Terjadi kesalahan saat memvalidasi PIN');
+    }
   };
 
   // ── Delete ────────────────────────────────────────────────────────────────
@@ -655,7 +652,7 @@ export default function AdminPage() {
                           <td className="px-4 py-3">
                             <div className="flex items-center justify-center gap-1">
                               <Link
-                                href={`/produk/${p.slug}`}
+                                href={`/produk/${encodeURIComponent(p.slug)}`}
                                 target="_blank"
                                 className="p-1.5 text-stone-400 hover:bg-stone-100 rounded-lg transition-colors"
                                 title="Lihat di toko"
@@ -663,7 +660,7 @@ export default function AdminPage() {
                                 <Eye className="w-4 h-4" />
                               </Link>
                               <Link
-                                href={`/admin/edit/${p.id}`}
+                                href={`/admin/edit/${encodeURIComponent(p.id)}`}
                                 className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                                 title="Edit produk"
                               >

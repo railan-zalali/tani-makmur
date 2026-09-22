@@ -10,6 +10,8 @@ interface Props {
   params: { slug: string };
 }
 
+export const dynamic = 'force-dynamic';
+
 // Normalise a DB row into a Product (mirrors API route logic)
 // ponytail: duplicates rowToProduct in API route; acceptable — avoids self-HTTP fetch
 function rowToProduct(row: Record<string, unknown>): Product {
@@ -42,40 +44,40 @@ function rowToProduct(row: Record<string, unknown>): Product {
 }
 
 async function getProductBySlug(slug: string): Promise<Product | null> {
-  // 1. Try static JSON first (fast, zero latency)
-  const jsonProducts = productsData as Product[];
-  const fromJson = jsonProducts.find((p) => p.slug === slug);
-  if (fromJson) return fromJson;
-
-  // 2. Try DB directly
+  // 1. Try DB directly
   try {
     const { supabase } = await import('@/lib/supabase');
     const { data, error } = await supabase.from('products').select('*').eq('slug', slug).single();
     if (data && !error) return rowToProduct(data);
   } catch {
-    // DB unavailable
+    // DB unavailable or not found
   }
+
+  // 2. Fallback to static JSON
+  // ponytail: Keep fallback to not break SSG if DB fails
+  const jsonProducts = productsData as Product[];
+  const fromJson = jsonProducts.find((p) => p.slug === slug);
+  if (fromJson) return fromJson;
+
   return null;
 }
 
 async function getRelatedProducts(product: Product): Promise<Product[]> {
-  const jsonProducts = productsData as Product[];
-
-  // Try JSON related first
-  const fromJson = jsonProducts
-    .filter((p) => p.category === product.category && p.id !== product.id)
-    .slice(0, 4);
-  if (fromJson.length > 0) return fromJson;
-
-  // Try DB
+  // Try DB first
   try {
     const { supabase } = await import('@/lib/supabase');
     const { data } = await supabase.from('products').select('*').eq('category', product.category).neq('id', product.id).limit(4);
-    if (data) return data.map(rowToProduct);
+    if (data && data.length > 0) return data.map(rowToProduct);
   } catch {
-    return [];
+    // silently continue
   }
-  return [];
+
+  // Fallback to JSON
+  const jsonProducts = productsData as Product[];
+  const fromJson = jsonProducts
+    .filter((p) => p.category === product.category && p.id !== product.id)
+    .slice(0, 4);
+  return fromJson;
 }
 
 // Static params for JSON-based products (ensures fast SSG for those slugs)

@@ -33,7 +33,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   return (
     <div className="group bg-white rounded-2xl border border-stone-200/90 hover:border-tani-400/60 shadow-xs hover:shadow-lg transition-all duration-300 flex flex-col overflow-hidden relative">
       {/* Image Container */}
-      <Link href={`/produk/${product.slug}`} className="block relative aspect-square w-full bg-stone-50 overflow-hidden">
+      <Link href={`/produk/${encodeURIComponent(product.slug)}`} className="block relative aspect-square w-full bg-stone-50 overflow-hidden">
         <Image
           src={product.images[0] || 'https://images.unsplash.com/photo-1585314062340-f1a5a7c9328d?w=800&auto=format&fit=crop&q=80'}
           alt={product.name}
@@ -69,7 +69,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
       {/* Content */}
       <div className="p-3 sm:p-4 flex-1 flex flex-col gap-2">
         {/* Name */}
-        <Link href={`/produk/${product.slug}`}>
+        <Link href={`/produk/${encodeURIComponent(product.slug)}`}>
           <h3 className="text-xs sm:text-sm font-bold text-stone-900 line-clamp-2 hover:text-tani-700 transition-colors leading-snug">
             {product.name}
           </h3>
@@ -107,7 +107,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
 
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-1.5">
             <Link
-              href={`/produk/${product.slug}`}
+              href={`/produk/${encodeURIComponent(product.slug)}`}
               className="hidden sm:flex items-center justify-center p-2 rounded-xl border border-stone-200 hover:border-tani-500 hover:bg-tani-50 text-stone-600 hover:text-tani-700 transition-colors"
               title="Lihat Detail"
             >
