@@ -5,14 +5,21 @@ import * as XLSX from 'xlsx';
 import {
   Lock, ShieldCheck, LogOut, Upload, Download, RefreshCw,
   Trash2, Check, PackageOpen, FileSpreadsheet,
-  AlertTriangle, Eye, EyeOff, Database, Pencil, Tags, Plus, X
+  AlertTriangle, Eye, EyeOff, Database, Pencil, Tags, Plus, X, ImageIcon
 } from 'lucide-react';
 import { Product } from '@/types/product';
 import Link from 'next/link';
 import { useCategories, CategoryDef } from '@/context/CategoryContext';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type Tab = 'products' | 'import' | 'seed' | 'kategori';
+type Tab = 'products' | 'images' | 'import' | 'seed' | 'kategori';
+
+type PendingProductImage = {
+  id: string;
+  name: string;
+  previewUrl: string;
+  blob: Blob;
+};
 
 // ─── Simple Excel format ──────────────────────────────────────────────────────
 // Columns: name | category | price | unit | stock_label | activeIngredients | short_desc | composition | images
@@ -53,6 +60,53 @@ function generateId(name: string): string {
     .trim()
     .replace(/\s+/g, '-')
     .slice(0, 60);
+}
+
+function fileBaseName(name: string) {
+  return name.replace(/\.[^.]+$/, '');
+}
+
+function webpName(name: string) {
+  return `${generateId(fileBaseName(name)) || 'produk'}.webp`;
+}
+
+function convertImageToWebp(file: File): Promise<PendingProductImage> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const sourceUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      const maxSide = 1200;
+      const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        URL.revokeObjectURL(sourceUrl);
+        reject(new Error('Browser tidak bisa memproses gambar ini'));
+        return;
+      }
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob((blob) => {
+        URL.revokeObjectURL(sourceUrl);
+        if (!blob) {
+          reject(new Error(`Gagal mengubah ${file.name} ke WebP`));
+          return;
+        }
+        resolve({
+          id: `${file.name}-${file.lastModified}-${Math.random().toString(36).slice(2)}`,
+          name: webpName(file.name),
+          previewUrl: URL.createObjectURL(blob),
+          blob,
+        });
+      }, 'image/webp', 0.82);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(sourceUrl);
+      reject(new Error(`${file.name} bukan gambar yang valid`));
+    };
+    img.src = sourceUrl;
+  });
 }
 
 // Normalise free-text category from Excel → valid ProductCategory slug
@@ -163,9 +217,16 @@ export default function AdminPage() {
   const [importFilename, setImportFilename] = useState('');
   const [importing, setImporting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const imageFileRef = useRef<HTMLInputElement>(null);
 
   // Seed state
   const [seeding, setSeeding] = useState(false);
+
+  // Product image state
+  const [pendingImages, setPendingImages] = useState<PendingProductImage[]>([]);
+  const [draggedImageId, setDraggedImageId] = useState('');
+  const [imageSearch, setImageSearch] = useState('');
+  const [savingImageFor, setSavingImageFor] = useState('');
 
   // Category state
   const { categories, reload: reloadCategories } = useCategories();
@@ -306,6 +367,61 @@ export default function AdminPage() {
     }
   };
 
+  const handleProductImages = async (files: FileList | File[]) => {
+    const imageFiles = Array.from(files).filter((file) => file.type.startsWith('image/'));
+    if (imageFiles.length === 0) {
+      flash('Pilih file gambar JPG, PNG, atau WebP', true);
+      return;
+    }
+
+    try {
+      const converted = await Promise.all(imageFiles.map(convertImageToWebp));
+      setPendingImages((prev) => [...prev, ...converted]);
+      flash(`${converted.length} gambar siap ditempel ke produk`);
+    } catch (e: unknown) {
+      flash(e instanceof Error ? e.message : 'Gagal memproses gambar', true);
+    } finally {
+      if (imageFileRef.current) imageFileRef.current.value = '';
+    }
+  };
+
+  const attachImageToProduct = async (product: Product, imageId: string) => {
+    const image = pendingImages.find((item) => item.id === imageId);
+    if (!image) return;
+
+    setSavingImageFor(product.id);
+    try {
+      const form = new FormData();
+      form.append('productId', product.id);
+      form.append('fileName', image.name);
+      form.append('image', image.blob, image.name);
+
+      const res = await fetch('/api/product-images', {
+        method: 'POST',
+        headers: { 'x-admin-pin': pin },
+        body: form,
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || 'Upload gambar gagal');
+
+      setProducts((prev) =>
+        prev.map((item) =>
+          item.id === product.id
+            ? { ...item, images: [...(item.images ?? []), body.url] }
+            : item
+        )
+      );
+      setPendingImages((prev) => prev.filter((item) => item.id !== image.id));
+      URL.revokeObjectURL(image.previewUrl);
+      flash(`Gambar ditambahkan ke ${product.name}`);
+    } catch (e: unknown) {
+      flash(e instanceof Error ? e.message : 'Gagal menyimpan gambar', true);
+    } finally {
+      setSavingImageFor('');
+      setDraggedImageId('');
+    }
+  };
+
   // ── Seed from JSON ────────────────────────────────────────────────────────
   const handleSeed = async () => {
     if (!confirm('Seed produk dari file JSON default ke database? Data lama akan digantikan.')) return;
@@ -416,6 +532,7 @@ export default function AdminPage() {
         <div className="flex flex-wrap gap-2 bg-white rounded-2xl border border-stone-200 p-1.5 w-fit shadow-xs">
           {([
             { id: 'products', label: 'Daftar Produk', icon: PackageOpen },
+            { id: 'images',   label: 'Gambar Produk', icon: ImageIcon },
             { id: 'import',   label: 'Import Excel',  icon: Upload },
             { id: 'kategori', label: 'Kategori',       icon: Tags },
             { id: 'seed',     label: 'Inisiasi DB',   icon: Database },
@@ -535,6 +652,151 @@ export default function AdminPage() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* -- Tab: Product Images -- */}
+        {activeTab === 'images' && (
+          <div className="space-y-6">
+            <div>
+              <h2 className="font-black text-xl text-stone-900">Gambar Produk</h2>
+              <p className="text-sm text-stone-500 mt-1">
+                Upload JPG/PNG/WebP, sistem mengubahnya ke WebP lalu seret gambar ke produk yang sesuai.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+              <div className="lg:col-span-7 bg-white rounded-2xl border border-stone-200 overflow-hidden">
+                <div className="p-4 border-b border-stone-200 bg-stone-50 flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
+                  <div>
+                    <h3 className="font-bold text-stone-900 text-sm">Daftar Produk</h3>
+                    <p className="text-xs text-stone-500">Drop gambar ke salah satu produk.</p>
+                  </div>
+                  <input
+                    value={imageSearch}
+                    onChange={(e) => setImageSearch(e.target.value)}
+                    placeholder="Cari nama produk..."
+                    className="w-full sm:w-72 border border-stone-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tani-500"
+                  />
+                </div>
+                <div className="divide-y divide-stone-100 max-h-[680px] overflow-y-auto">
+                  {products
+                    .filter((product) => product.name.toLowerCase().includes(imageSearch.toLowerCase()))
+                    .map((product) => (
+                      <div
+                        key={product.id}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          const id = e.dataTransfer.getData('text/plain') || draggedImageId;
+                          attachImageToProduct(product, id);
+                        }}
+                        className={`p-3 flex items-center gap-3 transition-colors ${
+                          draggedImageId ? 'hover:bg-emerald-50' : 'hover:bg-stone-50'
+                        }`}
+                      >
+                        <div className="w-14 h-14 rounded-xl bg-stone-100 border border-stone-200 overflow-hidden shrink-0">
+                          {product.images?.[0] ? (
+                            <img src={product.images[0]} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-stone-300">
+                              <ImageIcon className="w-5 h-5" />
+                            </div>
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-bold text-sm text-stone-900 truncate">{product.name}</p>
+                          <p className="text-xs text-stone-500 truncate">{product.category || 'tanpa kategori'}</p>
+                        </div>
+                        <span className={`text-[11px] font-bold px-2 py-1 rounded-full ${
+                          product.images?.length ? 'bg-emerald-100 text-emerald-700' : 'bg-stone-100 text-stone-500'
+                        }`}>
+                          {product.images?.length ?? 0} gambar
+                        </span>
+                        {savingImageFor === product.id && <RefreshCw className="w-4 h-4 animate-spin text-tani-700" />}
+                      </div>
+                    ))}
+                </div>
+              </div>
+
+              <div className="lg:col-span-5 space-y-4">
+                <div
+                  className="bg-white border-2 border-dashed border-stone-300 hover:border-tani-500 rounded-2xl p-6 text-center cursor-pointer transition-colors"
+                  onClick={() => imageFileRef.current?.click()}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    handleProductImages(e.dataTransfer.files);
+                  }}
+                >
+                  <input
+                    ref={imageFileRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(e) => e.target.files && handleProductImages(e.target.files)}
+                    className="hidden"
+                  />
+                  <Upload className="w-9 h-9 text-stone-400 mx-auto mb-3" />
+                  <p className="font-bold text-stone-800">Upload atau drop gambar produk</p>
+                  <p className="text-xs text-stone-500 mt-1">Gambar otomatis dikompres ke WebP maksimal 1200px.</p>
+                </div>
+
+                <div className="bg-white rounded-2xl border border-stone-200 overflow-hidden">
+                  <div className="px-4 py-3 bg-stone-50 border-b border-stone-200 flex items-center justify-between">
+                    <span className="text-sm font-bold text-stone-700">Gambar Siap Tempel ({pendingImages.length})</span>
+                    {pendingImages.length > 0 && (
+                      <button
+                        onClick={() => {
+                          pendingImages.forEach((image) => URL.revokeObjectURL(image.previewUrl));
+                          setPendingImages([]);
+                        }}
+                        className="text-xs font-bold text-red-600 hover:text-red-700"
+                      >
+                        Bersihkan
+                      </button>
+                    )}
+                  </div>
+                  {pendingImages.length === 0 ? (
+                    <div className="p-8 text-center text-sm text-stone-400">
+                      Belum ada gambar yang di-upload.
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-2 gap-3 p-4 max-h-[480px] overflow-y-auto">
+                      {pendingImages.map((image) => (
+                        <div
+                          key={image.id}
+                          draggable
+                          onDragStart={(e) => {
+                            setDraggedImageId(image.id);
+                            e.dataTransfer.setData('text/plain', image.id);
+                          }}
+                          onDragEnd={() => setDraggedImageId('')}
+                          className="rounded-2xl border border-stone-200 overflow-hidden bg-white cursor-grab active:cursor-grabbing shadow-xs"
+                        >
+                          <div className="aspect-square bg-stone-100">
+                            <img src={image.previewUrl} alt="" className="w-full h-full object-cover" />
+                          </div>
+                          <div className="p-2 flex items-start justify-between gap-2">
+                            <p className="text-[11px] font-semibold text-stone-600 line-clamp-2">{image.name}</p>
+                            <button
+                              onClick={() => {
+                                URL.revokeObjectURL(image.previewUrl);
+                                setPendingImages((prev) => prev.filter((item) => item.id !== image.id));
+                              }}
+                              className="p-1 text-stone-400 hover:text-red-500 hover:bg-red-50 rounded-lg"
+                              title="Hapus dari antrean"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
