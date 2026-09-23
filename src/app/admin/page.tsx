@@ -20,6 +20,7 @@ type PendingProductImage = {
   name: string;
   previewUrl: string;
   blob: Blob;
+  rotation: number;
 };
 
 // ─── Simple Excel format ──────────────────────────────────────────────────────
@@ -71,23 +72,16 @@ function webpName(name: string) {
   return `${generateId(fileBaseName(name)) || 'produk'}.webp`;
 }
 
-async function convertImageToWebp(file: File, wmOptions: { opacity: number, rotation: number, sizeRatio: number, position: any }): Promise<PendingProductImage> {
+async function convertImageToWebp(file: File): Promise<PendingProductImage> {
   try {
     const webpBlob = await convertToWebp(file, 0.82);
-    // ponytail: implement watermark here centrally before upload
-    const watermarkedBlob = await applyWatermark(webpBlob, {
-      logoUrl: '/LOGO.png',
-      position: wmOptions.position,
-      opacity: wmOptions.opacity,
-      sizeRatio: wmOptions.sizeRatio,
-      rotation: wmOptions.rotation
-    });
 
     return {
       id: `${file.name}-${file.lastModified}-${Math.random().toString(36).slice(2)}`,
       name: webpName(file.name),
-      previewUrl: URL.createObjectURL(watermarkedBlob),
-      blob: watermarkedBlob,
+      previewUrl: URL.createObjectURL(webpBlob),
+      blob: webpBlob,
+      rotation: 0
     };
   } catch (err) {
     throw new Error(err instanceof Error ? err.message : `Gagal memproses ${file.name}`);
@@ -243,7 +237,7 @@ export default function AdminPage() {
   const [savingImageFor, setSavingImageFor] = useState('');
   
   // Watermark state
-  const [wmAdmin, setWmAdmin] = useState({ opacity: 0.15, sizeRatio: 0.35, rotation: 0, position: 'center' as const });
+  const [wmAdmin, setWmAdmin] = useState({ opacity: 0.15, sizeRatio: 0.35, position: 'center' as const });
   const cameraRef = useRef<HTMLInputElement>(null);
 
   // Category state
@@ -406,7 +400,7 @@ export default function AdminPage() {
     }
 
     try {
-      const converted = await Promise.all(imageFiles.map(file => convertImageToWebp(file, wmAdmin)));
+      const converted = await Promise.all(imageFiles.map(file => convertImageToWebp(file)));
       setPendingImages((prev) => [...prev, ...converted]);
       flash(`${converted.length} gambar siap ditempel ke produk`);
     } catch (e: unknown) {
@@ -422,10 +416,19 @@ export default function AdminPage() {
 
     setSavingImageFor(product.id);
     try {
+      // Terapkan watermark + rotasi persis sebelum diupload
+      const watermarkedBlob = await applyWatermark(image.blob, {
+        logoUrl: '/LOGO.png',
+        position: wmAdmin.position,
+        opacity: wmAdmin.opacity,
+        sizeRatio: wmAdmin.sizeRatio,
+        rotation: image.rotation || 0
+      });
+
       const form = new FormData();
       form.append('productId', product.id);
       form.append('fileName', image.name);
-      form.append('image', image.blob, image.name);
+      form.append('image', watermarkedBlob, image.name);
 
       const res = await fetch('/api/product-images', {
         method: 'POST',
@@ -769,25 +772,7 @@ export default function AdminPage() {
                       className="w-full accent-tani-700" />
                   </div>
                   
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="text-xs font-bold text-stone-500">Rotasi Gambar</p>
-                      <span className="text-xs font-mono text-stone-600">{wmAdmin.rotation}°</span>
-                    </div>
-                    <div className="flex gap-2">
-                      {[0, 90, 180, 270].map(deg => (
-                        <button
-                          key={deg} type="button"
-                          onClick={() => setWmAdmin({ ...wmAdmin, rotation: deg })}
-                          className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors border ${
-                            wmAdmin.rotation === deg ? 'bg-tani-700 text-white border-tani-700 shadow-sm' : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100'
-                          }`}
-                        >
-                          {deg}°
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                  {/* Rotasi sekarang ada di masing-masing gambar */}
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
@@ -865,19 +850,30 @@ export default function AdminPage() {
                               : 'border-stone-200 hover:border-tani-300'
                           }`}
                         >
-                          <div className="aspect-square bg-stone-100 flex items-center justify-center overflow-hidden">
+                          <div className="aspect-square bg-stone-100 flex items-center justify-center overflow-hidden relative group">
                             <img
                               src={image.previewUrl}
                               alt=""
                               className="object-cover transition-transform duration-300"
                               style={{
-                                width: wmAdmin.rotation === 90 || wmAdmin.rotation === 270 ? 'auto' : '100%',
-                                height: wmAdmin.rotation === 90 || wmAdmin.rotation === 270 ? '100%' : 'auto',
+                                width: image.rotation === 90 || image.rotation === 270 ? 'auto' : '100%',
+                                height: image.rotation === 90 || image.rotation === 270 ? '100%' : 'auto',
                                 minWidth: '100%',
                                 minHeight: '100%',
-                                transform: `rotate(${wmAdmin.rotation}deg)`
+                                transform: `rotate(${image.rotation}deg)`
                               }}
                             />
+                            {/* Tombol rotate individual */}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setPendingImages(prev => prev.map(img => img.id === image.id ? { ...img, rotation: (img.rotation + 90) % 360 } : img));
+                              }}
+                              className="absolute top-2 right-2 bg-black/50 hover:bg-black/80 text-white p-1.5 rounded-full backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <RefreshCw className="w-4 h-4" />
+                            </button>
                           </div>
                           <div className="p-2 flex items-start justify-between gap-2">
                             <p className="text-[11px] font-semibold text-stone-600 line-clamp-2">{image.name}</p>

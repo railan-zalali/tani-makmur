@@ -49,10 +49,12 @@ export async function POST(req: NextRequest) {
     const fileName = safeFilePart(String(form.get('fileName') || 'produk.webp'));
     const file = form.get('image');
 
-    if (!productId || !(file instanceof File)) {
+    if (!productId || typeof file !== 'object' || file === null) {
       return NextResponse.json({ error: 'Produk atau gambar belum dipilih' }, { status: 400 });
     }
-    if (file.type !== 'image/webp') {
+    // TypeScript check: file is Blob/File, safely check type
+    const fileObj = file as Blob;
+    if (fileObj.type !== 'image/webp') {
       return NextResponse.json({ error: 'File harus WebP' }, { status: 400 });
     }
 

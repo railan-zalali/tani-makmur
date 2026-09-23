@@ -22,6 +22,7 @@ interface PendingImage {
   status: 'ready' | 'uploading' | 'done' | 'error';
   error?: string;
   uploadedUrl?: string;
+  rotation: number;
 }
 
 interface WatermarkSettings {
@@ -29,7 +30,6 @@ interface WatermarkSettings {
   position: WatermarkPosition;
   opacity: number;   // 0.05 – 1.0
   sizeRatio: number; // 0.05 – 0.6
-  rotation: number;  // 0 - 360
 }
 
 const STORAGE_KEY = 'tani_watermark_settings';
@@ -39,7 +39,6 @@ const DEFAULT_WM: WatermarkSettings = {
   position: 'bottom-right',
   opacity: 1.0,
   sizeRatio: 0.25,
-  rotation: 0,
 };
 
 const POSITIONS: WatermarkPosition[] = [
@@ -65,7 +64,10 @@ interface Props {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-const getPreviewPositionStyles = (pos: WatermarkPosition, rotation: number): React.CSSProperties => {
+// Posisi watermark CSS — overlay diletakkan di wrapper yang TIDAK ikut rotate,
+// sehingga koordinatnya match dengan hasil canvas applyWatermark (gambar sudah
+// di-rotate ke canvas, lalu watermark ditempel di atas canvas yang sudah dirotate).
+const getPreviewPositionStyles = (pos: WatermarkPosition): React.CSSProperties => {
   const pad = '2.5%';
   const base: React.CSSProperties = {};
   if (pos.includes('top')) base.top = pad;
@@ -73,26 +75,11 @@ const getPreviewPositionStyles = (pos: WatermarkPosition, rotation: number): Rea
   if (pos.includes('left')) base.left = pad;
   if (pos.includes('right')) base.right = pad;
   
-  let transformStr = '';
-  if (pos === 'top-center' || pos === 'bottom-center') {
-    base.left = '50%';
-    transformStr = 'translateX(-50%)';
-  } else if (pos === 'center-left' || pos === 'center-right') {
-    base.top = '50%';
-    transformStr = 'translateY(-50%)';
-  } else if (pos === 'center') {
-    base.top = '50%';
-    base.left = '50%';
-    transformStr = 'translate(-50%, -50%)';
-  }
-  
-  // Karena container dirotasi, watermark juga ikut terotasi bersama gambar.
-  // Untuk live preview yang akurat (jika watermark tidak ikut terotasi), kita butuh counter-rotation pada watermark, 
-  // atau cara termudah: merotasi <img /> utama saja dan membuat watermark overlay absolute di parent yang TIDAK berotasi.
-  if (transformStr) {
-    base.transform = transformStr;
-  }
-  
+  let t = '';
+  if (pos === 'top-center' || pos === 'bottom-center') { base.left = '50%'; t = 'translateX(-50%)'; }
+  else if (pos === 'center-left' || pos === 'center-right') { base.top = '50%'; t = 'translateY(-50%)'; }
+  else if (pos === 'center') { base.top = '50%'; base.left = '50%'; t = 'translate(-50%, -50%)'; }
+  if (t) base.transform = t;
   return base;
 };
 
@@ -155,6 +142,7 @@ export default function ImageUploadSection({ productId, images, pin, onChange }:
           blob,
           fileName: `${baseName}.webp`,
           status: 'ready',
+          rotation: 0,
         });
       } catch (err) {
         console.error('processFiles error:', err);
@@ -199,13 +187,14 @@ export default function ImageUploadSection({ productId, images, pin, onChange }:
       let finalBlob = item.blob;
       if (currentWm.enabled) {
         // applyWatermark sudah graceful fallback — tidak akan throw jika LOGO.png gagal
-        finalBlob = await applyWatermark(item.blob, {
+        const watermarkedBlob = await applyWatermark(item.blob, {
           logoUrl: '/LOGO.png',
           position: currentWm.position,
           opacity: currentWm.opacity,
           sizeRatio: currentWm.sizeRatio,
-          rotation: currentWm.rotation,
+          rotation: item.rotation,
         });
+        finalBlob = watermarkedBlob;
       }
 
       const form = new FormData();
@@ -321,7 +310,7 @@ export default function ImageUploadSection({ productId, images, pin, onChange }:
             Watermark Logo & Rotasi
             {wm.enabled && (
               <span className="text-xs font-normal text-stone-400">
-                {Math.round(wm.opacity * 100)}% opacity · {Math.round(wm.sizeRatio * 100)}% ukuran · {wm.rotation}° gambar
+                {Math.round(wm.opacity * 100)}% opacity · {Math.round(wm.sizeRatio * 100)}% ukuran
               </span>
             )}
           </span>
@@ -395,39 +384,20 @@ export default function ImageUploadSection({ productId, images, pin, onChange }:
                   />
                 </div>
 
-                {/* Rotation Buttons */}
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="text-xs font-bold text-stone-500">Rotasi Gambar</p>
-                    <span className="text-xs font-mono text-stone-600">{wm.rotation}°</span>
-                  </div>
-                  <div className="flex gap-2">
-                    {[0, 90, 180, 270].map(deg => (
-                      <button
-                        key={deg} type="button"
-                        onClick={() => saveWm({ ...wm, rotation: deg })}
-                        className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors border ${
-                          wm.rotation === deg ? 'bg-tani-700 text-white border-tani-700 shadow-sm' : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100'
-                        }`}
-                      >
-                        {deg}°
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                  {/* Rotasi sekarang ada di masing-masing gambar */}
               </>
             )}
           </div>
         )}
       </div>
 
-      {/* ── Upload buttons ── */}
+      {/* ── Upload buttons + Drag & Drop zone ── */}
       <div
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
         onDrop={onDrop}
-        className={`grid grid-cols-2 gap-2 p-3 border-2 border-dashed rounded-2xl transition-colors ${
-          isDragging ? 'border-tani-500 bg-tani-50' : 'border-transparent'
+        className={`p-3 border-2 border-dashed rounded-2xl transition-colors ${
+          isDragging ? 'border-tani-500 bg-tani-50' : 'border-stone-200 bg-stone-50/50'
         }`}
       >
         {/* Hidden inputs */}
@@ -448,27 +418,36 @@ export default function ImageUploadSection({ productId, images, pin, onChange }:
           onChange={(e) => e.target.files && processFiles(e.target.files)}
         />
 
-        <button
-          type="button"
-          onClick={() => cameraRef.current?.click()}
-          disabled={processing}
-          className="flex flex-col items-center gap-2 py-4 bg-stone-50 hover:bg-stone-100 border border-stone-200 rounded-2xl transition-colors disabled:opacity-50"
-        >
-          {processing ? <RefreshCw className="w-6 h-6 text-tani-600 animate-spin" /> : <Camera className="w-6 h-6 text-tani-700" />}
-          <span className="text-xs font-bold text-stone-700">Ambil Foto</span>
-          <span className="text-[10px] text-stone-400">Buka kamera</span>
-        </button>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => cameraRef.current?.click()}
+            disabled={processing}
+            className="flex flex-col items-center gap-2 py-4 bg-white hover:bg-stone-50 border border-stone-200 rounded-xl transition-colors disabled:opacity-50"
+          >
+            {processing ? <RefreshCw className="w-6 h-6 text-tani-600 animate-spin" /> : <Camera className="w-6 h-6 text-tani-700" />}
+            <span className="text-xs font-bold text-stone-700">Ambil Foto</span>
+            <span className="text-[10px] text-stone-400">Buka kamera</span>
+          </button>
 
-        <button
-          type="button"
-          onClick={() => galleryRef.current?.click()}
-          disabled={processing}
-          className="flex flex-col items-center gap-2 py-4 bg-stone-50 hover:bg-stone-100 border border-stone-200 rounded-2xl transition-colors disabled:opacity-50"
-        >
-          {processing ? <RefreshCw className="w-6 h-6 text-tani-600 animate-spin" /> : <ImagePlus className="w-6 h-6 text-tani-700" />}
-          <span className="text-xs font-bold text-stone-700">Pilih Galeri</span>
-          <span className="text-[10px] text-stone-400">Multi-pilih OK</span>
-        </button>
+          <button
+            type="button"
+            onClick={() => galleryRef.current?.click()}
+            disabled={processing}
+            className="flex flex-col items-center gap-2 py-4 bg-white hover:bg-stone-50 border border-stone-200 rounded-xl transition-colors disabled:opacity-50"
+          >
+            {processing ? <RefreshCw className="w-6 h-6 text-tani-600 animate-spin" /> : <ImagePlus className="w-6 h-6 text-tani-700" />}
+            <span className="text-xs font-bold text-stone-700">Pilih Galeri</span>
+            <span className="text-[10px] text-stone-400">Multi-pilih OK</span>
+          </button>
+        </div>
+
+        {/* Drag hint — selalu tampil */}
+        <p className={`text-center text-[10px] mt-2 transition-colors ${
+          isDragging ? 'text-tani-600 font-bold' : 'text-stone-400'
+        }`}>
+          {isDragging ? '✦ Lepaskan untuk upload' : '↓ Drag & drop gambar ke sini'}
+        </p>
       </div>
 
       {/* ── Pending queue ── */}
@@ -512,32 +491,53 @@ export default function ImageUploadSection({ productId, images, pin, onChange }:
                   'border-stone-200'
                 }`}
               >
-                  <div className="aspect-square bg-stone-100 relative flex items-center justify-center overflow-hidden">
-                    {/* Base image dengan live CSS rotation */}
-                    <img
-                      src={item.previewUrl} alt={item.fileName}
-                      className="object-cover transition-transform duration-300"
-                      style={{
-                        width: wm.rotation === 90 || wm.rotation === 270 ? 'auto' : '100%',
-                        height: wm.rotation === 90 || wm.rotation === 270 ? '100%' : 'auto',
-                        minWidth: '100%',
-                        minHeight: '100%',
-                        transform: `rotate(${wm.rotation}deg)`
+                  {/* Wrapper: overflow-hidden untuk clip gambar yang keluar saat rotasi */}
+                  <div className="aspect-square bg-stone-100 relative overflow-hidden group">
+                    {/* Inner: clip frame untuk gambar yang dirotate */}
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <img
+                        src={item.previewUrl} alt={item.fileName}
+                        className="object-cover transition-transform duration-300"
+                        style={{
+                          width: item.rotation === 90 || item.rotation === 270 ? 'auto' : '100%',
+                          height: item.rotation === 90 || item.rotation === 270 ? '100%' : 'auto',
+                          minWidth: '100%',
+                          minHeight: '100%',
+                          transform: `rotate(${item.rotation}deg)`
+                        }}
+                      />
+                    </div>
+
+                    {/* Watermark overlay — di luar div yang rotate agar posisinya
+                        sesuai dengan hasil akhir canvas (gambar sudah dirotate,
+                        watermark ditempel di atas canvas pada koordinat final) */}
+                    {wm.enabled && (
+                      <img
+                        src="/LOGO.png"
+                        alt=""
+                        aria-hidden="true"
+                        className="absolute object-contain pointer-events-none z-10"
+                        style={{
+                          width: `${wm.sizeRatio * 100}%`,
+                          opacity: wm.opacity,
+                          ...getPreviewPositionStyles(wm.position)
+                        }}
+                      />
+                    )}
+
+                    {/* Tombol rotate individual */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPending(prev => prev.map(img => img.localId === item.localId ? { ...img, rotation: (img.rotation + 90) % 360 } : img));
                       }}
-                    />
-                    {wm.enabled && item.status === 'ready' && (
-                    <img
-                      src="/LOGO.png"
-                      alt="Watermark preview"
-                      className="absolute object-contain pointer-events-none"
-                      style={{
-                        width: `${wm.sizeRatio * 100}%`,
-                        opacity: wm.opacity,
-                        ...getPreviewPositionStyles(wm.position, wm.rotation)
-                      }}
-                    />
-                  )}
-                </div>
+                      className="absolute top-2 right-2 bg-black/50 hover:bg-black/80 text-white p-1.5 rounded-full backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity z-20"
+                      title="Putar gambar 90°"
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                    </button>
+                  </div>
 
                 {/* Overlay status */}
                 {item.status === 'uploading' && (
