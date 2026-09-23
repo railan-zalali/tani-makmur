@@ -5,9 +5,10 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   ArrowLeft, Save, RefreshCw, AlertTriangle, Check,
-  Trash2, FlaskConical, Image as ImageIcon, Tag
+  Trash2, FlaskConical, Tag
 } from 'lucide-react';
 import { Product } from '@/types/product';
+import ImageUploadSection from '@/components/ImageUploadSection';
 
 const CATEGORIES = [
   { id: 'pupuk-kimia',   label: 'Pupuk Kimia / Anorganik' },
@@ -448,32 +449,13 @@ export default function EditProductPage() {
 
             {/* Gambar Card */}
             <div className="bg-white rounded-2xl border border-stone-200 shadow-xs p-5 space-y-3">
-              <h2 className="font-black text-stone-900 text-base flex items-center gap-2">
-                <ImageIcon className="w-4 h-4 text-stone-500" />
-                URL Gambar
-              </h2>
-              <p className="text-xs text-stone-400">Satu URL per baris. Baris pertama = gambar utama.</p>
-              <textarea
-                rows={4}
-                value={(form.images ?? []).join('\n')}
-                onChange={(e) =>
-                  set('images',
-                    e.target.value.split('\n').map((s) => s.trim()).filter(Boolean)
-                  )
-                }
-                placeholder="https://images.unsplash.com/..."
-                className="w-full border border-stone-200 rounded-xl px-3 py-2.5 text-xs outline-none focus:ring-2 focus:ring-tani-500 resize-none font-mono"
+              <h2 className="font-black text-stone-900 text-base">Gambar Produk</h2>
+              <ImageUploadSection
+                productId={form.id}
+                images={form.images ?? []}
+                pin={pin}
+                onChange={(imgs) => set('images', imgs)}
               />
-              {/* Image preview */}
-              {form.images?.[0] && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={form.images[0]}
-                  alt="Preview"
-                  className="w-full aspect-square object-cover rounded-xl border border-stone-200"
-                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                />
-              )}
             </div>
 
             {/* Save button (bottom) */}

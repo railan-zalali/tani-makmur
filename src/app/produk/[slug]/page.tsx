@@ -43,7 +43,12 @@ function rowToProduct(row: Record<string, unknown>): Product {
   };
 }
 
-async function getProductBySlug(slug: string): Promise<Product | null> {
+async function getProductBySlug(rawSlug: string): Promise<Product | null> {
+  // Next.js App Router may pass percent-encoded chars verbatim (e.g. %2C → ,).
+  // Decode once so the DB query always sees the canonical slug.
+  let slug = rawSlug;
+  try { slug = decodeURIComponent(rawSlug); } catch { /* malformed %, keep raw */ }
+
   // 1. Try DB directly
   try {
     const { supabase } = await import('@/lib/supabase');
