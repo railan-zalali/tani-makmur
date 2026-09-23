@@ -71,15 +71,16 @@ function webpName(name: string) {
   return `${generateId(fileBaseName(name)) || 'produk'}.webp`;
 }
 
-async function convertImageToWebp(file: File): Promise<PendingProductImage> {
+async function convertImageToWebp(file: File, wmOptions: { opacity: number, rotation: number, sizeRatio: number, position: any }): Promise<PendingProductImage> {
   try {
     const webpBlob = await convertToWebp(file, 0.82);
     // ponytail: implement watermark here centrally before upload
     const watermarkedBlob = await applyWatermark(webpBlob, {
       logoUrl: '/LOGO.png',
-      position: 'center', // Can be customized
-      opacity: 0.15,      // Subtle opacity
-      sizeRatio: 0.35     // 35% of image width
+      position: wmOptions.position,
+      opacity: wmOptions.opacity,
+      sizeRatio: wmOptions.sizeRatio,
+      rotation: wmOptions.rotation
     });
 
     return {
@@ -240,6 +241,10 @@ export default function AdminPage() {
   const [selectedImageId, setSelectedImageId] = useState('');
   const [imageSearch, setImageSearch] = useState('');
   const [savingImageFor, setSavingImageFor] = useState('');
+  
+  // Watermark state
+  const [wmAdmin, setWmAdmin] = useState({ opacity: 0.15, sizeRatio: 0.35, rotation: 0, position: 'center' as const });
+  const cameraRef = useRef<HTMLInputElement>(null);
 
   // Category state
   const { categories, reload: reloadCategories } = useCategories();
@@ -401,7 +406,7 @@ export default function AdminPage() {
     }
 
     try {
-      const converted = await Promise.all(imageFiles.map(convertImageToWebp));
+      const converted = await Promise.all(imageFiles.map(file => convertImageToWebp(file, wmAdmin)));
       setPendingImages((prev) => [...prev, ...converted]);
       flash(`${converted.length} gambar siap ditempel ke produk`);
     } catch (e: unknown) {
@@ -750,26 +755,76 @@ export default function AdminPage() {
               </div>
 
               <div className="lg:col-span-5 space-y-4">
-                <div
-                  className="bg-white border-2 border-dashed border-stone-300 hover:border-tani-500 rounded-2xl p-6 text-center cursor-pointer transition-colors"
-                  onClick={() => imageFileRef.current?.click()}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    handleProductImages(e.dataTransfer.files);
-                  }}
-                >
-                  <input
-                    ref={imageFileRef}
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    onChange={(e) => e.target.files && handleProductImages(e.target.files)}
-                    className="hidden"
-                  />
-                  <Upload className="w-9 h-9 text-stone-400 mx-auto mb-3" />
-                  <p className="font-bold text-stone-800">Upload atau drop gambar produk</p>
-                  <p className="text-xs text-stone-500 mt-1">Gambar otomatis dikompres ke WebP maksimal 1200px.</p>
+                {/* Watermark Controls */}
+                <div className="bg-white rounded-2xl border border-stone-200 p-4 space-y-3">
+                  <h3 className="font-bold text-stone-700 text-sm">Pengaturan Watermark</h3>
+                  
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-xs font-bold text-stone-500">Opacity</p>
+                      <span className="text-xs font-mono text-stone-600">{Math.round(wmAdmin.opacity * 100)}%</span>
+                    </div>
+                    <input type="range" min="5" max="100" step="5" value={Math.round(wmAdmin.opacity * 100)}
+                      onChange={(e) => setWmAdmin({ ...wmAdmin, opacity: Number(e.target.value) / 100 })}
+                      className="w-full accent-tani-700" />
+                  </div>
+                  
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-xs font-bold text-stone-500">Rotasi Gambar</p>
+                      <span className="text-xs font-mono text-stone-600">{wmAdmin.rotation}°</span>
+                    </div>
+                    <div className="flex gap-2">
+                      {[0, 90, 180, 270].map(deg => (
+                        <button
+                          key={deg} type="button"
+                          onClick={() => setWmAdmin({ ...wmAdmin, rotation: deg })}
+                          className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors border ${
+                            wmAdmin.rotation === deg ? 'bg-tani-700 text-white border-tani-700 shadow-sm' : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100'
+                          }`}
+                        >
+                          {deg}°
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div
+                    className="bg-white border-2 border-dashed border-stone-300 hover:border-tani-500 rounded-2xl p-4 text-center cursor-pointer transition-colors flex flex-col justify-center items-center h-32"
+                    onClick={() => cameraRef.current?.click()}
+                  >
+                    <input
+                      ref={cameraRef}
+                      type="file" accept="image/*" capture="environment" className="hidden"
+                      onChange={(e) => e.target.files && handleProductImages(e.target.files)}
+                    />
+                    <div className="w-8 h-8 rounded-full bg-stone-100 flex items-center justify-center mb-2">
+                      <svg className="w-4 h-4 text-stone-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                    </div>
+                    <p className="font-bold text-stone-800 text-xs">Ambil Foto</p>
+                    <p className="text-[10px] text-stone-500 mt-0.5">Kamera Langsung</p>
+                  </div>
+
+                  <div
+                    className="bg-white border-2 border-dashed border-stone-300 hover:border-tani-500 rounded-2xl p-4 text-center cursor-pointer transition-colors flex flex-col justify-center items-center h-32"
+                    onClick={() => imageFileRef.current?.click()}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      handleProductImages(e.dataTransfer.files);
+                    }}
+                  >
+                    <input
+                      ref={imageFileRef}
+                      type="file" accept="image/*" multiple className="hidden"
+                      onChange={(e) => e.target.files && handleProductImages(e.target.files)}
+                    />
+                    <Upload className="w-6 h-6 text-stone-400 mb-2" />
+                    <p className="font-bold text-stone-800 text-xs">Pilih / Drop</p>
+                    <p className="text-[10px] text-stone-500 mt-0.5">Maks 1200px (WebP)</p>
+                  </div>
                 </div>
 
                 <div className="bg-white rounded-2xl border border-stone-200 overflow-hidden">
@@ -810,8 +865,19 @@ export default function AdminPage() {
                               : 'border-stone-200 hover:border-tani-300'
                           }`}
                         >
-                          <div className="aspect-square bg-stone-100">
-                            <img src={image.previewUrl} alt="" className="w-full h-full object-cover" />
+                          <div className="aspect-square bg-stone-100 flex items-center justify-center overflow-hidden">
+                            <img
+                              src={image.previewUrl}
+                              alt=""
+                              className="object-cover transition-transform duration-300"
+                              style={{
+                                width: wmAdmin.rotation === 90 || wmAdmin.rotation === 270 ? 'auto' : '100%',
+                                height: wmAdmin.rotation === 90 || wmAdmin.rotation === 270 ? '100%' : 'auto',
+                                minWidth: '100%',
+                                minHeight: '100%',
+                                transform: `rotate(${wmAdmin.rotation}deg)`
+                              }}
+                            />
                           </div>
                           <div className="p-2 flex items-start justify-between gap-2">
                             <p className="text-[11px] font-semibold text-stone-600 line-clamp-2">{image.name}</p>

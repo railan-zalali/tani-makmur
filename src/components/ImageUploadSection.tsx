@@ -29,6 +29,7 @@ interface WatermarkSettings {
   position: WatermarkPosition;
   opacity: number;   // 0.05 – 1.0
   sizeRatio: number; // 0.05 – 0.6
+  rotation: number;  // 0 - 360
 }
 
 const STORAGE_KEY = 'tani_watermark_settings';
@@ -38,6 +39,7 @@ const DEFAULT_WM: WatermarkSettings = {
   position: 'bottom-right',
   opacity: 1.0,
   sizeRatio: 0.25,
+  rotation: 0,
 };
 
 const POSITIONS: WatermarkPosition[] = [
@@ -63,24 +65,34 @@ interface Props {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-const getPreviewPositionStyles = (pos: WatermarkPosition): React.CSSProperties => {
+const getPreviewPositionStyles = (pos: WatermarkPosition, rotation: number): React.CSSProperties => {
   const pad = '2.5%';
   const base: React.CSSProperties = {};
   if (pos.includes('top')) base.top = pad;
   if (pos.includes('bottom')) base.bottom = pad;
   if (pos.includes('left')) base.left = pad;
   if (pos.includes('right')) base.right = pad;
+  
+  let transformStr = '';
   if (pos === 'top-center' || pos === 'bottom-center') {
     base.left = '50%';
-    base.transform = 'translateX(-50%)';
+    transformStr = 'translateX(-50%)';
   } else if (pos === 'center-left' || pos === 'center-right') {
     base.top = '50%';
-    base.transform = 'translateY(-50%)';
+    transformStr = 'translateY(-50%)';
   } else if (pos === 'center') {
     base.top = '50%';
     base.left = '50%';
-    base.transform = 'translate(-50%, -50%)';
+    transformStr = 'translate(-50%, -50%)';
   }
+  
+  // Karena container dirotasi, watermark juga ikut terotasi bersama gambar.
+  // Untuk live preview yang akurat (jika watermark tidak ikut terotasi), kita butuh counter-rotation pada watermark, 
+  // atau cara termudah: merotasi <img /> utama saja dan membuat watermark overlay absolute di parent yang TIDAK berotasi.
+  if (transformStr) {
+    base.transform = transformStr;
+  }
+  
   return base;
 };
 
@@ -192,6 +204,7 @@ export default function ImageUploadSection({ productId, images, pin, onChange }:
           position: currentWm.position,
           opacity: currentWm.opacity,
           sizeRatio: currentWm.sizeRatio,
+          rotation: currentWm.rotation,
         });
       }
 
@@ -305,10 +318,10 @@ export default function ImageUploadSection({ productId, images, pin, onChange }:
             <span
               className={`w-2 h-2 rounded-full ${wm.enabled ? 'bg-tani-600' : 'bg-stone-300'}`}
             />
-            Watermark Logo
+            Watermark Logo & Rotasi
             {wm.enabled && (
               <span className="text-xs font-normal text-stone-400">
-                {Math.round(wm.opacity * 100)}% opacity · {Math.round(wm.sizeRatio * 100)}% ukuran
+                {Math.round(wm.opacity * 100)}% opacity · {Math.round(wm.sizeRatio * 100)}% ukuran · {wm.rotation}° gambar
               </span>
             )}
           </span>
@@ -380,6 +393,27 @@ export default function ImageUploadSection({ productId, images, pin, onChange }:
                     onChange={(e) => saveWm({ ...wm, sizeRatio: Number(e.target.value) / 100 })}
                     className="w-full accent-tani-700"
                   />
+                </div>
+
+                {/* Rotation Buttons */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs font-bold text-stone-500">Rotasi Gambar</p>
+                    <span className="text-xs font-mono text-stone-600">{wm.rotation}°</span>
+                  </div>
+                  <div className="flex gap-2">
+                    {[0, 90, 180, 270].map(deg => (
+                      <button
+                        key={deg} type="button"
+                        onClick={() => saveWm({ ...wm, rotation: deg })}
+                        className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors border ${
+                          wm.rotation === deg ? 'bg-tani-700 text-white border-tani-700 shadow-sm' : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100'
+                        }`}
+                      >
+                        {deg}°
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </>
             )}
@@ -478,13 +512,20 @@ export default function ImageUploadSection({ productId, images, pin, onChange }:
                   'border-stone-200'
                 }`}
               >
-                <div className="aspect-square bg-stone-100 relative">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={item.previewUrl} alt={item.fileName}
-                    className="w-full h-full object-cover"
-                  />
-                  {wm.enabled && item.status === 'ready' && (
+                  <div className="aspect-square bg-stone-100 relative flex items-center justify-center overflow-hidden">
+                    {/* Base image dengan live CSS rotation */}
+                    <img
+                      src={item.previewUrl} alt={item.fileName}
+                      className="object-cover transition-transform duration-300"
+                      style={{
+                        width: wm.rotation === 90 || wm.rotation === 270 ? 'auto' : '100%',
+                        height: wm.rotation === 90 || wm.rotation === 270 ? '100%' : 'auto',
+                        minWidth: '100%',
+                        minHeight: '100%',
+                        transform: `rotate(${wm.rotation}deg)`
+                      }}
+                    />
+                    {wm.enabled && item.status === 'ready' && (
                     <img
                       src="/LOGO.png"
                       alt="Watermark preview"
@@ -492,7 +533,7 @@ export default function ImageUploadSection({ productId, images, pin, onChange }:
                       style={{
                         width: `${wm.sizeRatio * 100}%`,
                         opacity: wm.opacity,
-                        ...getPreviewPositionStyles(wm.position)
+                        ...getPreviewPositionStyles(wm.position, wm.rotation)
                       }}
                     />
                   )}

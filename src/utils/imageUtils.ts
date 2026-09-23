@@ -19,6 +19,8 @@ export interface WatermarkOptions {
   opacity: number;
   /** Rasio lebar logo relatif terhadap lebar gambar, 0.05 – 0.6. Default 0.25 */
   sizeRatio: number;
+  /** Rotasi gambar (0, 90, 180, 270) */
+  rotation?: number;
 }
 
 const MAX_SIDE = 1200;
@@ -39,7 +41,9 @@ export function convertToWebp(file: File, quality = 0.82): Promise<Blob> {
         reject(new Error('Browser tidak bisa memproses gambar ini'));
         return;
       }
+      
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      
       canvas.toBlob((blob) => {
         URL.revokeObjectURL(srcUrl);
         if (!blob) { reject(new Error(`Gagal mengubah ${file.name} ke WebP`)); return; }
@@ -52,10 +56,12 @@ export function convertToWebp(file: File, quality = 0.82): Promise<Blob> {
 }
 
 /** Load Image dari URL, return HTMLImageElement */
-function loadImage(url: string): Promise<HTMLImageElement> {
+function loadImage(url: string, useCrossOrigin = true): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.crossOrigin = 'anonymous';
+    if (useCrossOrigin && !url.startsWith('blob:') && !url.startsWith('data:')) {
+      img.crossOrigin = 'anonymous';
+    }
     img.onload  = () => resolve(img);
     img.onerror = () => reject(new Error(`Gagal memuat gambar: ${url}`));
     img.src = url;
@@ -106,7 +112,8 @@ export async function applyWatermark(source: Blob, opts: WatermarkOptions): Prom
   const srcUrl = URL.createObjectURL(source);
 
   // Load base image (wajib) — jika gagal, throw
-  const baseImg = await loadImage(srcUrl).finally(() => URL.revokeObjectURL(srcUrl));
+  // Matikan crossOrigin untuk object URL (blob:) agar tidak gagal di Vercel (karena blob: bukan lintas-asal tapi beberapa browser akan reject jika minta anonymous pada blob)
+  const baseImg = await loadImage(srcUrl, false).finally(() => URL.revokeObjectURL(srcUrl));
 
   // Load logo (opsional) — jika gagal, skip watermark & return source
   let logoImg: HTMLImageElement;
@@ -117,17 +124,24 @@ export async function applyWatermark(source: Blob, opts: WatermarkOptions): Prom
     return source;
   }
 
+  const deg = ((opts.rotation || 0) % 360 + 360) % 360;
+  const swap = deg === 90 || deg === 270;
+
   const canvas = document.createElement('canvas');
-  canvas.width  = baseImg.width;
-  canvas.height = baseImg.height;
+  canvas.width  = swap ? baseImg.height : baseImg.width;
+  canvas.height = swap ? baseImg.width : baseImg.height;
   const ctx = canvas.getContext('2d');
   if (!ctx) {
     console.warn('[applyWatermark] Canvas 2D tidak tersedia, watermark di-skip');
     return source;
   }
 
-  // 1. Gambar base image
-  ctx.drawImage(baseImg, 0, 0);
+  // 1. Gambar base image (dengan rotasi)
+  ctx.save();
+  ctx.translate(canvas.width / 2, canvas.height / 2);
+  ctx.rotate((deg * Math.PI) / 180);
+  ctx.drawImage(baseImg, -baseImg.width / 2, -baseImg.height / 2);
+  ctx.restore();
 
   // 2. Hitung ukuran logo
   const logoW   = Math.round(canvas.width * Math.max(0.05, Math.min(0.6, opts.sizeRatio)));
