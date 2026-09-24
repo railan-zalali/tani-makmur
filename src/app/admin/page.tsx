@@ -5,7 +5,7 @@ import * as XLSX from 'xlsx';
 import {
   Lock, ShieldCheck, LogOut, Upload, Download, RefreshCw,
   Trash2, Check, PackageOpen, FileSpreadsheet,
-  AlertTriangle, Eye, EyeOff, Database, Pencil, Tags, Plus, X, ImageIcon
+  AlertTriangle, Eye, EyeOff, Database, Pencil, Tags, Plus, X, ImageIcon, ZoomIn,
 } from 'lucide-react';
 import { Product } from '@/types/product';
 import Link from 'next/link';
@@ -240,6 +240,9 @@ export default function AdminPage() {
   const [wmAdmin, setWmAdmin] = useState({ opacity: 0.15, sizeRatio: 0.35, position: 'center' as const });
   const cameraRef = useRef<HTMLInputElement>(null);
 
+  // Zoom modal state untuk gambar di antrean
+  const [zoomAdminId, setZoomAdminId] = useState<string>('');
+
   // Category state
   const { categories, reload: reloadCategories } = useCategories();
   const [newCat, setNewCat] = useState<Partial<CategoryDef>>({ icon_name: 'Package', badge_color: 'bg-stone-100 text-stone-800 border-stone-200', bg_color: 'bg-stone-50 group-hover:bg-stone-100', icon_color: 'text-stone-600', sort_order: 99 });
@@ -266,6 +269,14 @@ export default function AdminPage() {
   useEffect(() => {
     if (isAuthenticated) loadProducts();
   }, [isAuthenticated, loadProducts]);
+
+  // Close zoom on Escape
+  useEffect(() => {
+    if (!zoomAdminId) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setZoomAdminId(''); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [zoomAdminId]);
 
   // ── Auth ──────────────────────────────────────────────────────────────────
   const handleLogin = async () => {
@@ -771,7 +782,36 @@ export default function AdminPage() {
                       onChange={(e) => setWmAdmin({ ...wmAdmin, opacity: Number(e.target.value) / 100 })}
                       className="w-full accent-tani-700" />
                   </div>
-                  
+
+                  {/* Ukuran logo */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-xs font-bold text-stone-500">Ukuran Logo</p>
+                      <span className="text-xs font-mono text-stone-600">{Math.round(wmAdmin.sizeRatio * 100)}% lebar</span>
+                    </div>
+                    <input type="range" min="5" max="60" step="5" value={Math.round(wmAdmin.sizeRatio * 100)}
+                      onChange={(e) => setWmAdmin({ ...wmAdmin, sizeRatio: Number(e.target.value) / 100 })}
+                      className="w-full accent-tani-700" />
+                  </div>
+
+                  {/* Live preview — tampil jika ada pending image */}
+                  {pendingImages.length > 0 && (() => {
+                    const prev = pendingImages.find((i) => i.id === selectedImageId) ?? pendingImages[0];
+                    return (
+                      <div className="flex items-center gap-3 pt-1">
+                        <div className="relative w-20 h-20 rounded-xl overflow-hidden bg-stone-100 border border-stone-200 shrink-0">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={prev.previewUrl} alt="" className="w-full h-full object-cover" style={{ transform: `rotate(${prev.rotation}deg)` }} />
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src="/LOGO.png" alt="" aria-hidden className="absolute object-contain pointer-events-none"
+                            style={{ width: `${wmAdmin.sizeRatio * 100}%`, opacity: wmAdmin.opacity, top: '50%', left: '50%', transform: 'translate(-50%,-50%)' }} />
+                          <span className="absolute bottom-0.5 left-0 right-0 text-center text-[8px] text-white bg-black/40">preview</span>
+                        </div>
+                        <p className="text-[11px] text-stone-500 leading-snug">Watermark akan terlihat seperti ini pada hasil akhir gambar.</p>
+                      </div>
+                    );
+                  })()}
+
                   {/* Rotasi sekarang ada di masing-masing gambar */}
                 </div>
 
@@ -863,7 +903,22 @@ export default function AdminPage() {
                                 transform: `rotate(${image.rotation}deg)`
                               }}
                             />
-                            {/* Tombol rotate individual */}
+                          {/* Watermark live overlay */}
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src="/LOGO.png" alt="" aria-hidden
+                            className="absolute object-contain pointer-events-none z-10"
+                            style={{ width: `${wmAdmin.sizeRatio * 100}%`, opacity: wmAdmin.opacity, top: '50%', left: '50%', transform: 'translate(-50%,-50%)' }}
+                          />
+                          {/* Tombol zoom */}
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setZoomAdminId(image.id); }}
+                            className="absolute top-2 left-2 bg-black/50 hover:bg-black/80 text-white p-1.5 rounded-full backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity z-20"
+                            title="Zoom preview"
+                          >
+                            <ZoomIn className="w-4 h-4" />
+                          </button>
+                          {/* Tombol rotate individual */}
                             <button
                               type="button"
                               onClick={(e) => {
@@ -899,6 +954,45 @@ export default function AdminPage() {
             </div>
           </div>
         )}
+
+        {/* ── Zoom Modal Gambar Admin ── */}
+        {(() => {
+          const zoomedAdminImg = pendingImages.find((i) => i.id === zoomAdminId);
+          if (!zoomedAdminImg) return null;
+          return (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+              onClick={() => setZoomAdminId('')}
+            >
+              <div className="relative max-w-2xl w-full max-h-[90vh] flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+                <div className="relative rounded-2xl overflow-hidden shadow-2xl">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={zoomedAdminImg.previewUrl} alt={zoomedAdminImg.name}
+                    className="max-w-full max-h-[80vh] object-contain"
+                    style={{ transform: `rotate(${zoomedAdminImg.rotation}deg)` }}
+                  />
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src="/LOGO.png" alt="" aria-hidden
+                    className="absolute object-contain pointer-events-none z-10"
+                    style={{ width: `${wmAdmin.sizeRatio * 100}%`, opacity: wmAdmin.opacity, top: '50%', left: '50%', transform: 'translate(-50%,-50%)' }}
+                  />
+                </div>
+                <button type="button"
+                  onClick={() => setPendingImages((prev) => prev.map((img) => img.id === zoomedAdminImg.id ? { ...img, rotation: (img.rotation + 90) % 360 } : img))}
+                  className="absolute bottom-4 left-4 bg-white/90 hover:bg-white text-stone-700 p-2.5 rounded-full shadow-lg transition-colors" title="Putar 90°">
+                  <RefreshCw className="w-5 h-5" />
+                </button>
+                <button type="button" onClick={() => setZoomAdminId('')}
+                  className="absolute top-2 right-2 bg-white/90 hover:bg-white text-stone-700 p-1.5 rounded-full shadow-lg transition-colors">
+                  <X className="w-5 h-5" />
+                </button>
+                <p className="absolute bottom-4 right-4 text-white text-xs bg-black/50 px-2 py-1 rounded-lg backdrop-blur-sm max-w-[60%] truncate">
+                  {zoomedAdminImg.name}
+                </p>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* ── Tab: Import Excel ── */}
         {activeTab === 'import' && (

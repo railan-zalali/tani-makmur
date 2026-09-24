@@ -2,13 +2,14 @@
 
 /**
  * ImageUploadSection — komponen upload gambar untuk halaman Edit Produk.
- * Fitur: ambil foto (camera), pilih dari galeri, WebP compression, watermark logo.
+ * Fitur: ambil foto (camera), pilih dari galeri, WebP compression, watermark logo,
+ *        replace gambar existing, zoom preview, live watermark preview.
  */
 
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import {
   Camera, ImagePlus, Trash2, RefreshCw, X,
-  ChevronDown, ChevronUp, ExternalLink,
+  ChevronDown, ChevronUp, ExternalLink, ZoomIn, Pencil,
 } from 'lucide-react';
 import { convertToWebp, applyWatermark, WatermarkPosition } from '@/utils/imageUtils';
 
@@ -62,6 +63,25 @@ interface Props {
   onChange: (images: string[]) => void;
 }
 
+// ─── Watermark overlay reusable ───────────────────────────────────────────────
+function WatermarkOverlay({ wm }: { wm: WatermarkSettings }) {
+  if (!wm.enabled) return null;
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src="/LOGO.png"
+      alt=""
+      aria-hidden="true"
+      className="absolute object-contain pointer-events-none z-10"
+      style={{
+        width: `${wm.sizeRatio * 100}%`,
+        opacity: wm.opacity,
+        ...getPreviewPositionStyles(wm.position),
+      }}
+    />
+  );
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 // Posisi watermark CSS — overlay diletakkan di wrapper yang TIDAK ikut rotate,
@@ -84,18 +104,25 @@ const getPreviewPositionStyles = (pos: WatermarkPosition): React.CSSProperties =
 };
 
 export default function ImageUploadSection({ productId, images, pin, onChange }: Props) {
-  const cameraRef  = useRef<HTMLInputElement>(null);
-  const galleryRef = useRef<HTMLInputElement>(null);
+  const cameraRef   = useRef<HTMLInputElement>(null);
+  const galleryRef  = useRef<HTMLInputElement>(null);
+  // Replace existing: satu hidden input, simpan index yang sedang di-replace
+  const replaceRef    = useRef<HTMLInputElement>(null);
+  const replaceIdxRef = useRef<number>(-1);
 
-  const [pending, setPending]       = useState<PendingImage[]>([]);
+  const [pending, setPending]         = useState<PendingImage[]>([]);
   // Ref untuk baca pending terkini dari dalam async callback tanpa stale closure
   const pendingRef = useRef<PendingImage[]>([]);
-  const [wm, setWm]                 = useState<WatermarkSettings>(DEFAULT_WM);
+  const [wm, setWm]                   = useState<WatermarkSettings>(DEFAULT_WM);
   const wmRef = useRef<WatermarkSettings>(DEFAULT_WM);
   const [showWmPanel, setShowWmPanel] = useState(false);
   const [showManual, setShowManual]   = useState(false);
   const [processing, setProcessing]   = useState(false);
   const [isDragging, setIsDragging]   = useState(false);
+
+  // Zoom modal state — null = tutup, localId = tampilkan pending item tsb
+  const [zoomId, setZoomId] = useState<string | null>(null);
+  const zoomedItem = pending.find((p) => p.localId === zoomId) ?? null;
 
   // Sync ref setiap kali state berubah
   useEffect(() => { pendingRef.current = pending; }, [pending]);
@@ -122,6 +149,14 @@ export default function ImageUploadSection({ productId, images, pin, onChange }:
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Close zoom on Escape
+  useEffect(() => {
+    if (!zoomId) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setZoomId(null); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [zoomId]);
 
   // ── Process File(s) ────────────────────────────────────────────────────────
 
@@ -155,18 +190,55 @@ export default function ImageUploadSection({ productId, images, pin, onChange }:
     setProcessing(false);
   }, []);
 
-  const onDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  }, []);
-
+  const onDragOver  = useCallback((e: React.DragEvent) => { e.preventDefault(); setIsDragging(true); }, []);
   const onDragLeave = useCallback(() => setIsDragging(false), []);
-  
-  const onDrop = useCallback((e: React.DragEvent) => {
+  const onDrop      = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
     if (e.dataTransfer.files) processFiles(e.dataTransfer.files);
   }, [processFiles]);
+
+  // ── Replace existing image ─────────────────────────────────────────────────
+
+  const triggerReplace = (idx: number) => {
+    replaceIdxRef.current = idx;
+    replaceRef.current?.click();
+  };
+
+  const onReplaceFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    const idx  = replaceIdxRef.current;
+    e.target.value = ''; // reset agar onChange bisa terpicu lagi untuk file yang sama
+    if (!file || idx < 0) return;
+    setProcessing(true);
+    try {
+      const blob    = await convertToWebp(file);
+      const localId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const baseName = file.name.replace(/\.[^.]+$/, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 60) || 'produk';
+      const item: PendingImage = { localId, previewUrl: URL.createObjectURL(blob), blob, fileName: `${baseName}.webp`, status: 'ready', rotation: 0 };
+      setPending((prev) => [...prev, item]);
+      // Upload & replace posisi idx
+      const currentWm = wmRef.current;
+      let finalBlob = item.blob;
+      if (currentWm.enabled) {
+        finalBlob = await applyWatermark(item.blob, { logoUrl: '/LOGO.png', position: currentWm.position, opacity: currentWm.opacity, sizeRatio: currentWm.sizeRatio, rotation: item.rotation });
+      }
+      const form = new FormData();
+      form.append('productId', productId);
+      form.append('fileName', item.fileName);
+      form.append('image', finalBlob, item.fileName);
+      const res  = await fetch('/api/product-images', { method: 'POST', headers: { 'x-admin-pin': pin }, body: form });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || 'Upload gagal');
+      onChange(images.map((u, i) => (i === idx ? body.url : u)));
+      setPending((prev) => prev.filter((p) => p.localId !== item.localId));
+      URL.revokeObjectURL(item.previewUrl);
+    } catch (err) {
+      console.error('onReplaceFile error:', err);
+    }
+    setProcessing(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productId, pin, images, onChange]);
 
   // ── Upload single pending image ────────────────────────────────────────────
 
@@ -242,6 +314,7 @@ export default function ImageUploadSection({ productId, images, pin, onChange }:
     const item = pending.find((p) => p.localId === localId);
     if (item) URL.revokeObjectURL(item.previewUrl);
     setPending((prev) => prev.filter((p) => p.localId !== localId));
+    if (zoomId === localId) setZoomId(null);
   };
 
   const removeExisting = (url: string) => {
@@ -249,11 +322,47 @@ export default function ImageUploadSection({ productId, images, pin, onChange }:
   };
 
   const readyCount = pending.filter((p) => p.status === 'ready').length;
+  // Preview item untuk panel watermark — pending pertama yang ready, fallback ke pertama
+  const wmPreviewItem = pending.find((p) => p.status === 'ready') ?? pending[0] ?? null;
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-4">
+
+      {/* ── Hidden replace input ── */}
+      <input ref={replaceRef} type="file" accept="image/*" className="hidden" onChange={onReplaceFile} />
+
+      {/* ── Zoom Modal ── */}
+      {zoomedItem && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+          onClick={() => setZoomId(null)}
+        >
+          <div className="relative max-w-2xl w-full max-h-[90vh] flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+            <div className="relative rounded-2xl overflow-hidden shadow-2xl">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={zoomedItem.previewUrl} alt={zoomedItem.fileName}
+                className="max-w-full max-h-[80vh] object-contain"
+                style={{ transform: `rotate(${zoomedItem.rotation}deg)` }}
+              />
+              <WatermarkOverlay wm={wm} />
+            </div>
+            <button type="button" onClick={() => setPending((prev) => prev.map((img) => img.localId === zoomedItem.localId ? { ...img, rotation: (img.rotation + 90) % 360 } : img))}
+              className="absolute bottom-4 left-4 bg-white/90 hover:bg-white text-stone-700 p-2.5 rounded-full shadow-lg transition-colors" title="Putar gambar 90°">
+              <RefreshCw className="w-5 h-5" />
+            </button>
+            <button type="button" onClick={() => setZoomId(null)}
+              className="absolute top-2 right-2 bg-white/90 hover:bg-white text-stone-700 p-1.5 rounded-full shadow-lg transition-colors">
+              <X className="w-5 h-5" />
+            </button>
+            <p className="absolute bottom-4 right-4 text-white text-xs bg-black/50 px-2 py-1 rounded-lg backdrop-blur-sm max-w-[60%] truncate">
+              {zoomedItem.fileName}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* ── Existing images grid ── */}
       {images.length > 0 && (
@@ -283,6 +392,10 @@ export default function ImageUploadSection({ productId, images, pin, onChange }:
                   >
                     <ExternalLink className="w-3.5 h-3.5" />
                   </a>
+                  <button type="button" onClick={() => triggerReplace(i)}
+                    className="p-1.5 bg-white/90 rounded-lg text-tani-700 hover:bg-white" title="Ganti gambar ini">
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
                   <button
                     onClick={() => removeExisting(url)}
                     className="p-1.5 bg-white/90 rounded-lg text-red-600 hover:bg-white"
@@ -318,75 +431,104 @@ export default function ImageUploadSection({ productId, images, pin, onChange }:
         </button>
 
         {showWmPanel && (
-          <div className="p-4 space-y-4 bg-white border-t border-stone-100">
-            {/* Toggle on/off */}
-            <label className="flex items-center gap-3 cursor-pointer">
-              <div
-                onClick={() => saveWm({ ...wm, enabled: !wm.enabled })}
-                className={`w-10 h-6 rounded-full flex items-center px-1 transition-colors cursor-pointer ${wm.enabled ? 'bg-tani-600' : 'bg-stone-200'}`}
-              >
-                <div className={`w-4 h-4 rounded-full bg-white shadow transition-transform ${wm.enabled ? 'translate-x-4' : 'translate-x-0'}`} />
+          <div className="p-4 bg-white border-t border-stone-100">
+            <div className="flex gap-4">
+              {/* Settings column */}
+              <div className="flex-1 space-y-4 min-w-0">
+                {/* Toggle on/off */}
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <div
+                    onClick={() => saveWm({ ...wm, enabled: !wm.enabled })}
+                    className={`w-10 h-6 rounded-full flex items-center px-1 transition-colors cursor-pointer ${wm.enabled ? 'bg-tani-600' : 'bg-stone-200'}`}
+                  >
+                    <div className={`w-4 h-4 rounded-full bg-white shadow transition-transform ${wm.enabled ? 'translate-x-4' : 'translate-x-0'}`} />
+                  </div>
+                  <span className="text-sm font-semibold text-stone-700">
+                    {wm.enabled ? 'Watermark aktif' : 'Watermark nonaktif'}
+                  </span>
+                </label>
+
+                {wm.enabled && (
+                  <>
+                    {/* Position grid 3×3 */}
+                    <div>
+                      <p className="text-xs font-bold text-stone-500 mb-2">Posisi</p>
+                      <div className="grid grid-cols-3 gap-1 w-fit">
+                        {POSITIONS.map((pos) => (
+                          <button
+                            key={pos}
+                            type="button"
+                            onClick={() => saveWm({ ...wm, position: pos })}
+                            className={`w-9 h-9 rounded-lg text-base font-bold transition-all ${
+                              wm.position === pos
+                                ? 'bg-tani-700 text-white shadow-sm'
+                                : 'bg-stone-100 text-stone-500 hover:bg-stone-200'
+                            }`}
+                            title={pos}
+                          >
+                            {POS_LABEL[pos]}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Opacity slider */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <p className="text-xs font-bold text-stone-500">Opacity</p>
+                        <span className="text-xs font-mono text-stone-600">{Math.round(wm.opacity * 100)}%</span>
+                      </div>
+                      <input
+                        type="range" min="5" max="100" step="5"
+                        value={Math.round(wm.opacity * 100)}
+                        onChange={(e) => saveWm({ ...wm, opacity: Number(e.target.value) / 100 })}
+                        className="w-full accent-tani-700"
+                      />
+                    </div>
+
+                    {/* Size slider */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <p className="text-xs font-bold text-stone-500">Ukuran Logo</p>
+                        <span className="text-xs font-mono text-stone-600">{Math.round(wm.sizeRatio * 100)}% lebar</span>
+                      </div>
+                      <input
+                        type="range" min="5" max="60" step="5"
+                        value={Math.round(wm.sizeRatio * 100)}
+                        onChange={(e) => saveWm({ ...wm, sizeRatio: Number(e.target.value) / 100 })}
+                        className="w-full accent-tani-700"
+                      />
+                    </div>
+                  </>
+                )}
               </div>
-              <span className="text-sm font-semibold text-stone-700">
-                {wm.enabled ? 'Watermark aktif' : 'Watermark nonaktif'}
-              </span>
-            </label>
 
-            {wm.enabled && (
-              <>
-                {/* Position grid 3×3 */}
-                <div>
-                  <p className="text-xs font-bold text-stone-500 mb-2">Posisi</p>
-                  <div className="grid grid-cols-3 gap-1 w-fit">
-                    {POSITIONS.map((pos) => (
-                      <button
-                        key={pos}
-                        type="button"
-                        onClick={() => saveWm({ ...wm, position: pos })}
-                        className={`w-10 h-10 rounded-lg text-lg font-bold transition-all ${
-                          wm.position === pos
-                            ? 'bg-tani-700 text-white shadow-sm'
-                            : 'bg-stone-100 text-stone-500 hover:bg-stone-200'
-                        }`}
-                        title={pos}
-                      >
-                        {POS_LABEL[pos]}
-                      </button>
-                    ))}
+              {/* Live preview — tampil jika ada pending item */}
+              {wmPreviewItem && (
+                <div className="flex-shrink-0 w-28">
+                  <p className="text-xs font-bold text-stone-500 mb-2 text-center">Preview</p>
+                  <div className="relative rounded-xl overflow-hidden aspect-square bg-stone-100 border border-stone-200 shadow-sm">
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={wmPreviewItem.previewUrl} alt="preview"
+                        className="object-cover"
+                        style={{
+                          width: wmPreviewItem.rotation === 90 || wmPreviewItem.rotation === 270 ? 'auto' : '100%',
+                          height: wmPreviewItem.rotation === 90 || wmPreviewItem.rotation === 270 ? '100%' : 'auto',
+                          minWidth: '100%', minHeight: '100%',
+                          transform: `rotate(${wmPreviewItem.rotation}deg)`,
+                        }}
+                      />
+                    </div>
+                    <WatermarkOverlay wm={wm} />
+                    <div className="absolute bottom-1 left-0 right-0 text-center">
+                      <span className="text-[9px] bg-black/50 text-white px-1.5 py-0.5 rounded-full backdrop-blur-sm">Siap tempel</span>
+                    </div>
                   </div>
                 </div>
-
-                {/* Opacity slider */}
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <p className="text-xs font-bold text-stone-500">Opacity</p>
-                    <span className="text-xs font-mono text-stone-600">{Math.round(wm.opacity * 100)}%</span>
-                  </div>
-                  <input
-                    type="range" min="5" max="100" step="5"
-                    value={Math.round(wm.opacity * 100)}
-                    onChange={(e) => saveWm({ ...wm, opacity: Number(e.target.value) / 100 })}
-                    className="w-full accent-tani-700"
-                  />
-                </div>
-
-                {/* Size slider */}
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <p className="text-xs font-bold text-stone-500">Ukuran Logo</p>
-                    <span className="text-xs font-mono text-stone-600">{Math.round(wm.sizeRatio * 100)}% lebar gambar</span>
-                  </div>
-                  <input
-                    type="range" min="5" max="60" step="5"
-                    value={Math.round(wm.sizeRatio * 100)}
-                    onChange={(e) => saveWm({ ...wm, sizeRatio: Number(e.target.value) / 100 })}
-                    className="w-full accent-tani-700"
-                  />
-                </div>
-
-                  {/* Rotasi sekarang ada di masing-masing gambar */}
-              </>
-            )}
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -472,6 +614,7 @@ export default function ImageUploadSection({ productId, images, pin, onChange }:
                 onClick={() => {
                   pending.forEach((p) => URL.revokeObjectURL(p.previewUrl));
                   setPending([]);
+                  setZoomId(null);
                 }}
                 className="text-xs font-bold text-red-600 hover:text-red-700 px-2 py-1.5 rounded-lg hover:bg-red-50 transition-colors"
               >
@@ -511,19 +654,17 @@ export default function ImageUploadSection({ productId, images, pin, onChange }:
                     {/* Watermark overlay — di luar div yang rotate agar posisinya
                         sesuai dengan hasil akhir canvas (gambar sudah dirotate,
                         watermark ditempel di atas canvas pada koordinat final) */}
-                    {wm.enabled && (
-                      <img
-                        src="/LOGO.png"
-                        alt=""
-                        aria-hidden="true"
-                        className="absolute object-contain pointer-events-none z-10"
-                        style={{
-                          width: `${wm.sizeRatio * 100}%`,
-                          opacity: wm.opacity,
-                          ...getPreviewPositionStyles(wm.position)
-                        }}
-                      />
-                    )}
+                    <WatermarkOverlay wm={wm} />
+
+                    {/* Tombol zoom */}
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setZoomId(item.localId); }}
+                      className="absolute top-2 left-2 bg-black/50 hover:bg-black/80 text-white p-1.5 rounded-full backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity z-20"
+                      title="Zoom / preview besar"
+                    >
+                      <ZoomIn className="w-4 h-4" />
+                    </button>
 
                     {/* Tombol rotate individual */}
                     <button
