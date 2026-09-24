@@ -22,6 +22,10 @@ export const metadata: Metadata = {
 };
 
 // ─── Server-side data fetch ───────────────────────────────────────────────────
+import { rowToProduct } from '@/utils/productMapper';
+
+export const dynamic = 'force-dynamic';
+
 async function fetchProducts(): Promise<Product[]> {
   try {
     const { supabase } = await import('@/lib/supabase');
@@ -32,20 +36,7 @@ async function fetchProducts(): Promise<Product[]> {
       .order('name', { ascending: true });
 
     if (!error && Array.isArray(data) && data.length > 0) {
-      // Supabase returns parsed JSON for json columns — normalise booleans only
-      return data.map((row) => ({
-        ...row,
-        isAvailable: Boolean(row.is_available),
-        featured: Boolean(row.featured),
-        images: Array.isArray(row.images) ? row.images : [],
-        activeIngredients: Array.isArray(row.active_ingredients) ? row.active_ingredients : undefined,
-        suitableCrops: Array.isArray(row.suitable_crops) ? row.suitable_crops : undefined,
-        minOrder: row.min_order ?? undefined,
-        weightKg: row.weight_kg ?? undefined,
-        tag: row.tag ?? undefined,
-        dosage: row.dosage ?? undefined,
-        usage: row.usage_text ?? '',
-      } as Product));
+      return data.map((row) => rowToProduct(row));
     }
   } catch {
     // DB unavailable — fall through to static fallback

@@ -27,31 +27,7 @@ interface ProductRow {
   suitable_crops: string | null; // JSON string
 }
 
-function rowToProduct(row: ProductRow): Product {
-  const parse = (v: any) => (typeof v === 'string' ? (v ? JSON.parse(v) : undefined) : v);
-  return {
-    id: row.id,
-    slug: row.slug,
-    name: row.name,
-    category: row.category,
-    price: row.price,
-    unit: row.unit,
-    minOrder: row.min_order ?? undefined,
-    stock_label: row.stock_label,
-    isAvailable: Boolean(row.is_available),
-    featured: Boolean(row.featured),
-    tag: row.tag ?? undefined,
-    weightKg: row.weight_kg ?? undefined,
-    images: parse(row.images) || [],
-    activeIngredients: parse(row.active_ingredients),
-    short_desc: row.short_desc,
-    description: row.description,
-    composition: row.composition,
-    usage: row.usage_text,
-    dosage: row.dosage ?? undefined,
-    suitableCrops: parse(row.suitable_crops),
-  };
-}
+import { rowToProduct } from '@/utils/productMapper';
 
 import { supabase } from '@/lib/supabase';
 

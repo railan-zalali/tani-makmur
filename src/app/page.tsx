@@ -21,7 +21,7 @@ import { CategoryGrid } from '@/components/CategoryGrid';
 import { ProductCard } from '@/components/ProductCard';
 import { siteConfig } from '@/config/site';
 import { Product } from '@/types/product';
-
+import { rowToProduct } from '@/utils/productMapper';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,33 +34,7 @@ export default async function HomePage() {
     const { data } = await supabase.from('products').select('*').order('sort_order', { ascending: true }).order('name', { ascending: true });
     
     if (data && data.length > 0) {
-      const parse = (v: unknown) => {
-        if (Array.isArray(v)) return v;
-        try { return JSON.parse(String(v || '[]')); } catch { return []; }
-      };
-      
-      products = data.map((row: any) => ({
-        id: String(row.id),
-        slug: String(row.slug),
-        name: String(row.name),
-        category: row.category as Product['category'],
-        price: Number(row.price) || 0,
-        unit: String(row.unit ?? ''),
-        minOrder: row.min_order != null ? Number(row.min_order) : undefined,
-        stock_label: (row.stock_label as Product['stock_label']) ?? 'Tersedia',
-        isAvailable: Boolean(row.is_available),
-        featured: Boolean(row.featured),
-        tag: row.tag ? String(row.tag) : undefined,
-        weightKg: row.weight_kg != null ? Number(row.weight_kg) : undefined,
-        images: parse(row.images),
-        activeIngredients: row.active_ingredients ? parse(row.active_ingredients) : undefined,
-        short_desc: String(row.short_desc ?? ''),
-        description: String(row.description ?? ''),
-        composition: String(row.composition ?? ''),
-        usage: String(row.usage_text ?? ''),
-        dosage: row.dosage ? String(row.dosage) : undefined,
-        suitableCrops: row.suitable_crops ? parse(row.suitable_crops) : undefined,
-      }));
+      products = data.map((row: any) => rowToProduct(row));
     }
   } catch {
     // fallback to json
