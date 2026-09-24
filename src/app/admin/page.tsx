@@ -11,6 +11,8 @@ import { Product } from '@/types/product';
 import Link from 'next/link';
 import { useCategories, CategoryDef } from '@/context/CategoryContext';
 import { convertToWebp, applyWatermark } from '@/utils/imageUtils';
+import { AdminAuth } from './components/AdminAuth';
+import { ProductTable } from './components/ProductTable';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Tab = 'products' | 'images' | 'import' | 'seed' | 'kategori';
@@ -208,9 +210,6 @@ function sheetRowToProduct(row: Record<string, any>): Product {
 // ─── Main Admin Page ───────────────────────────────────────────────────────────
 export default function AdminPage() {
   const [pin, setPin] = useState('');
-  const [pinInput, setPinInput] = useState('');
-  const [showPin, setShowPin] = useState(false);
-  const [pinError, setPinError] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   const [activeTab, setActiveTab] = useState<Tab>('products');
@@ -278,27 +277,7 @@ export default function AdminPage() {
     return () => window.removeEventListener('keydown', handler);
   }, [zoomAdminId]);
 
-  // ── Auth ──────────────────────────────────────────────────────────────────
-  const handleLogin = async () => {
-    if (!pinInput.trim()) { setPinError('Masukkan PIN admin'); return; }
-    try {
-      const res = await fetch('/api/auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pin: pinInput })
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        setPinError(body.error || 'PIN yang dimasukkan salah');
-        return;
-      }
-      setPin(pinInput);
-      setIsAuthenticated(true);
-      setPinError('');
-    } catch {
-      setPinError('Terjadi kesalahan saat memvalidasi PIN');
-    }
-  };
+  // Auth is handled by AdminAuth component
 
   // ── Delete ────────────────────────────────────────────────────────────────
   const handleDelete = async (id: string, name: string) => {
@@ -498,42 +477,12 @@ export default function AdminPage() {
   // ─── Login Screen ──────────────────────────────────────────────────────────
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-tani-950 via-tani-900 to-tani-800 flex items-center justify-center p-4">
-        <div className="w-full max-w-md bg-white/10 backdrop-blur-md rounded-3xl border border-white/20 shadow-2xl p-8 space-y-6">
-          <div className="text-center space-y-2">
-            <div className="w-16 h-16 bg-tani-700 rounded-2xl flex items-center justify-center mx-auto shadow-lg">
-              <Lock className="w-8 h-8 text-white" />
-            </div>
-            <h1 className="text-2xl font-black text-white">Admin Panel</h1>
-            <p className="text-sm text-emerald-200">Tani Makmur — Manajemen Produk</p>
-          </div>
-          <div className="space-y-3">
-            <div className="relative">
-              <input
-                type={showPin ? 'text' : 'password'}
-                value={pinInput}
-                onChange={(e) => setPinInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
-                placeholder="Masukkan PIN Admin"
-                className="w-full bg-white/10 border border-white/20 text-white placeholder-white/50 rounded-xl px-4 py-3 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
-              />
-              <button type="button" onClick={() => setShowPin(!showPin)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-white/50 hover:text-white">
-                {showPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-            {pinError && <p className="text-red-300 text-xs">{pinError}</p>}
-            <button onClick={handleLogin}
-              className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl transition-colors flex items-center justify-center gap-2">
-              <ShieldCheck className="w-4 h-4" />
-              Masuk ke Admin Panel
-            </button>
-          </div>
-          <p className="text-center text-xs text-white/40">
-            PIN diatur via env variable <code className="font-mono">ADMIN_PIN</code>
-          </p>
-        </div>
-      </div>
+      <AdminAuth 
+        onSuccess={(validPin) => {
+          setPin(validPin);
+          setIsAuthenticated(true);
+        }} 
+      />
     );
   }
 
@@ -553,7 +502,7 @@ export default function AdminPage() {
           <div className="flex items-center gap-3">
             <span className="text-xs text-emerald-300 hidden sm:inline">{products.length} produk</span>
             <button
-              onClick={() => { setIsAuthenticated(false); setPin(''); setPinInput(''); }}
+              onClick={() => { setIsAuthenticated(false); setPin(''); }}
               className="flex items-center gap-1.5 text-xs text-red-300 hover:text-red-200 px-3 py-1.5 rounded-lg border border-red-500/30 hover:bg-red-500/10"
             >
               <LogOut className="w-3.5 h-3.5" />
@@ -595,110 +544,13 @@ export default function AdminPage() {
 
         {/* ── Tab: Products ── */}
         {activeTab === 'products' && (
-          <div className="space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <h2 className="font-black text-xl text-stone-900">Daftar Produk ({products.length})</h2>
-              <div className="flex gap-2">
-                <button onClick={loadProducts} disabled={loading}
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl border border-stone-200 text-sm font-bold text-stone-700 hover:bg-stone-50">
-                  <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-                  Refresh
-                </button>
-                <button onClick={handleExport} disabled={!products.length}
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold disabled:opacity-50">
-                  <Download className="w-4 h-4" />
-                  Export Excel
-                </button>
-              </div>
-            </div>
-
-            {loading ? (
-              <div className="flex items-center justify-center py-20 text-stone-400">
-                <RefreshCw className="w-6 h-6 animate-spin mr-2" /> Memuat data...
-              </div>
-            ) : products.length === 0 ? (
-              <div className="bg-white rounded-3xl border border-stone-200 p-16 text-center space-y-4">
-                <PackageOpen className="w-12 h-12 text-stone-300 mx-auto" />
-                <div>
-                  <p className="font-bold text-stone-700">Database kosong</p>
-                  <p className="text-sm text-stone-500 mt-1">Buka tab &quot;Inisiasi DB&quot; untuk seed data awal.</p>
-                </div>
-              </div>
-            ) : (
-              <div className="bg-white rounded-2xl border border-stone-200 overflow-hidden shadow-xs">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="bg-stone-50 border-b border-stone-200">
-                      <tr>
-                        <th className="text-left px-4 py-3 font-bold text-stone-600 text-xs">Nama Produk</th>
-                        <th className="text-left px-4 py-3 font-bold text-stone-600 text-xs">Kategori</th>
-                        <th className="text-right px-4 py-3 font-bold text-stone-600 text-xs">Harga</th>
-                        <th className="text-left px-4 py-3 font-bold text-stone-600 text-xs">Bahan Aktif</th>
-                        <th className="text-left px-4 py-3 font-bold text-stone-600 text-xs">Stok</th>
-                        <th className="text-center px-4 py-3 font-bold text-stone-600 text-xs">Aksi</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-stone-100">
-                      {products.map((p) => (
-                        <tr key={p.id} className="hover:bg-stone-50/50">
-                          <td className="px-4 py-3">
-                            <div className="font-semibold text-stone-900 line-clamp-1 max-w-[220px]">{p.name}</div>
-                            {p.featured && <span className="text-[10px] bg-harvest-100 text-harvest-800 px-1.5 py-0.5 rounded font-bold">Unggulan</span>}
-                          </td>
-                          <td className="px-4 py-3">
-                            <span className="text-xs bg-tani-100 text-tani-800 px-2 py-0.5 rounded-full font-semibold">{p.category}</span>
-                          </td>
-                          <td className="px-4 py-3 text-right font-bold text-stone-900 whitespace-nowrap">
-                            Rp {p.price.toLocaleString('id')}
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex flex-wrap gap-1 max-w-[180px]">
-                              {(p.activeIngredients ?? []).slice(0, 2).map((ai) => (
-                                <span key={ai} className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.5 rounded-full">{ai}</span>
-                              ))}
-                              {(p.activeIngredients?.length ?? 0) > 2 && (
-                                <span className="text-[10px] text-stone-400">+{(p.activeIngredients?.length ?? 0) - 2}</span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3">
-                            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
-                              p.stock_label === 'Tersedia' ? 'bg-emerald-100 text-emerald-700' :
-                              p.stock_label === 'Stok Menipis' ? 'bg-amber-100 text-amber-700' :
-                              'bg-blue-100 text-blue-700'
-                            }`}>{p.stock_label}</span>
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex items-center justify-center gap-1">
-                              <Link
-                                href={`/produk/${encodeURIComponent(p.slug)}`}
-                                target="_blank"
-                                className="p-1.5 text-stone-400 hover:bg-stone-100 rounded-lg transition-colors"
-                                title="Lihat di toko"
-                              >
-                                <Eye className="w-4 h-4" />
-                              </Link>
-                              <Link
-                                href={`/admin/edit/${encodeURIComponent(p.id)}`}
-                                className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                                title="Edit produk"
-                              >
-                                <Pencil className="w-4 h-4" />
-                              </Link>
-                              <button onClick={() => handleDelete(p.id, p.name)}
-                                className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors" title="Hapus">
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-          </div>
+          <ProductTable 
+            products={products}
+            loading={loading}
+            onRefresh={loadProducts}
+            onDelete={handleDelete}
+            onExport={handleExport}
+          />
         )}
 
         {/* -- Tab: Product Images -- */}
