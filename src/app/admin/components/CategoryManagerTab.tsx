@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Plus, RefreshCw, X } from 'lucide-react';
-import { CategoryDef } from '@/types/product';
+import { CategoryDef } from '@/context/CategoryContext';
 
 interface CategoryManagerTabProps {
   pin: string;
