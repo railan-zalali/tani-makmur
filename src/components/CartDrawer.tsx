@@ -127,7 +127,7 @@ export const CartDrawer: React.FC = () => {
                     >
                       <div className="relative w-14 h-14 rounded-xl overflow-hidden bg-white shrink-0 border border-stone-200">
                         <Image
-                          src={item.product.images[0] || 'https://images.unsplash.com/photo-1585314062340-f1a5a7c9328d?w=800&auto=format&fit=crop&q=80'}
+                          src={item.product.images[0] || '/placeholder-product.jpg'}
                           alt={item.product.name}
                           fill
                           sizes="56px"

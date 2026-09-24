@@ -82,7 +82,7 @@ export const ProductDetailClient: React.FC<ProductDetailClientProps> = ({
               src={
                 product.images[selectedImage] ||
                 product.images[0] ||
-                'https://images.unsplash.com/photo-1585314062340-f1a5a7c9328d?w=800&auto=format&fit=crop&q=80'
+                '/placeholder-product.jpg'
               }
               alt={product.name}
               fill

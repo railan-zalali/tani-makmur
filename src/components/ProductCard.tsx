@@ -35,7 +35,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
       {/* Image Container */}
       <Link href={`/produk/${encodeURIComponent(product.slug)}`} className="block relative aspect-square w-full bg-stone-50 overflow-hidden">
         <Image
-          src={product.images[0] || 'https://images.unsplash.com/photo-1585314062340-f1a5a7c9328d?w=800&auto=format&fit=crop&q=80'}
+          src={product.images[0] || '/placeholder-product.jpg'}
           alt={product.name}
           fill
           sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"

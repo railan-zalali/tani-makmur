@@ -288,11 +288,11 @@ export default function AdminPage() {
         body: JSON.stringify({ pin: pinInput })
       });
       if (!res.ok) {
-        setPinError('PIN yang dimasukkan salah');
+        const body = await res.json().catch(() => ({}));
+        setPinError(body.error || 'PIN yang dimasukkan salah');
         return;
       }
       setPin(pinInput);
-      sessionStorage.setItem('admin_pin', pinInput);
       setIsAuthenticated(true);
       setPinError('');
     } catch {
