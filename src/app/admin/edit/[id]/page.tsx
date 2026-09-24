@@ -10,15 +10,7 @@ import {
 import { Product } from '@/types/product';
 import ImageUploadSection from '@/components/ImageUploadSection';
 
-const CATEGORIES = [
-  { id: 'pupuk-kimia',   label: 'Pupuk Kimia / Anorganik' },
-  { id: 'pupuk-organik', label: 'Pupuk Organik & Kompos' },
-  { id: 'pupuk-cair',    label: 'Pupuk Hayati & Cair (POC)' },
-  { id: 'pestisida',     label: 'Pestisida & Perlindungan Tanaman' },
-  { id: 'media-tanam',   label: 'Media Tanam & Pembenah Tanah' },
-  { id: 'nutrisi-mikro', label: 'Nutrisi Mikro & Kalsium' },
-  { id: 'benih',         label: 'Benih & Bibit Tanaman' },
-] as const;
+import { useCategories } from '@/context/CategoryContext';
 
 const STOCK_LABELS = ['Tersedia', 'Stok Menipis', 'Pre-Order'] as const;
 
@@ -64,6 +56,7 @@ function Textarea({ value, onChange, rows = 3, placeholder }: {
 export default function EditProductPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const { categories } = useCategories();
 
   const [form, setForm] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
@@ -258,8 +251,8 @@ export default function EditProductPage() {
                     onChange={(e) => set('category', e.target.value)}
                     className="w-full border border-stone-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-tani-500 bg-white"
                   >
-                    {CATEGORIES.map((c) => (
-                      <option key={c.id} value={c.id}>{c.label}</option>
+                    {categories.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
                     ))}
                   </select>
                 </div>
