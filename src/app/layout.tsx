@@ -42,6 +42,11 @@ export const metadata: Metadata = {
     locale: 'id_ID',
     siteName: siteConfig.name,
   },
+  manifest: '/manifest.json',
+};
+
+export const viewport = {
+  themeColor: '#059669',
 };
 
 export default function RootLayout({

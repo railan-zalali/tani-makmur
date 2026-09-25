@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
+import useEmblaCarousel from 'embla-carousel-react';
 import {
   ChevronLeft,
   Plus,
@@ -36,6 +37,26 @@ export const ProductDetailClient: React.FC<ProductDetailClientProps> = ({
   const [selectedImage, setSelectedImage] = useState(0);
   const [quantity, setQuantity] = useState(1);
   const [isAdded, setIsAdded] = useState(false);
+
+  const [emblaRef, emblaApi] = useEmblaCarousel({ loop: true });
+
+  const onThumbClick = useCallback((index: number) => {
+    if (!emblaApi) return;
+    emblaApi.scrollTo(index);
+    setSelectedImage(index);
+  }, [emblaApi]);
+
+  const onSelect = useCallback(() => {
+    if (!emblaApi) return;
+    setSelectedImage(emblaApi.selectedScrollSnap());
+  }, [emblaApi]);
+
+  useEffect(() => {
+    if (!emblaApi) return;
+    onSelect();
+    emblaApi.on('select', onSelect);
+    emblaApi.on('reInit', onSelect);
+  }, [emblaApi, onSelect]);
 
   const { addToCart } = useCart();
   const { getCategory } = useCategories();
@@ -74,30 +95,40 @@ export const ProductDetailClient: React.FC<ProductDetailClientProps> = ({
 
       {/* Main Product Details Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-start">
-        {/* Left: Product Images Gallery */}
+        {/* Left: Product Images Gallery (Carousel) */}
         <div className="lg:col-span-6 space-y-4">
-          {/* Main Large Image */}
-          <div className="relative aspect-square w-full rounded-3xl overflow-hidden bg-stone-100 border border-stone-200/90 shadow-sm">
-            <Image
-              src={
-                product.images[selectedImage] ||
-                product.images[0] ||
-                '/placeholder-product.jpg'
-              }
-              alt={product.name}
-              fill
-              priority
-              className="object-cover transition-all duration-300"
-            />
+          {/* Main Large Image Carousel */}
+          <div className="overflow-hidden rounded-3xl border border-stone-200/90 shadow-sm bg-stone-100 relative group" ref={emblaRef}>
+            <div className="flex touch-pan-y">
+              {product.images.length > 0 ? (
+                product.images.map((img, idx) => (
+                  <div className="flex-[0_0_100%] min-w-0 relative aspect-square" key={idx}>
+                    <Image
+                      src={img}
+                      alt={`${product.name} - slide ${idx + 1}`}
+                      fill
+                      priority={idx === 0}
+                      className="object-cover"
+                    />
+                  </div>
+                ))
+              ) : (
+                <div className="flex-[0_0_100%] min-w-0 relative aspect-square">
+                  <Image src="/placeholder-product.jpg" alt={product.name} fill priority className="object-cover" />
+                </div>
+              )}
+            </div>
+
+            {/* Floating Tags */}
             {product.tag && (
-              <div className="absolute top-4 left-4">
+              <div className="absolute top-4 left-4 z-10">
                 <span className="text-xs font-black px-3 py-1 rounded-full bg-harvest-500 text-stone-950 shadow-sm flex items-center gap-1.5">
                   <Tag className="w-3 h-3" />
                   <span>{product.tag}</span>
                 </span>
               </div>
             )}
-            <div className="absolute bottom-4 left-4">
+            <div className="absolute bottom-4 left-4 z-10">
               <span className="text-xs font-semibold px-3 py-1 rounded-lg bg-stone-900/80 text-white backdrop-blur-xs flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                 <span>{product.stock_label}</span>
@@ -107,13 +138,13 @@ export const ProductDetailClient: React.FC<ProductDetailClientProps> = ({
 
           {/* Thumbnails (if multiple images) */}
           {product.images.length > 1 && (
-            <div className="flex gap-3 overflow-x-auto pb-1">
+            <div className="flex gap-3 overflow-x-auto pb-1 snap-x">
               {product.images.map((img, idx) => (
                 <button
                   key={idx}
-                  onClick={() => setSelectedImage(idx)}
+                  onClick={() => onThumbClick(idx)}
                   type="button"
-                  className={`relative w-20 h-20 rounded-2xl overflow-hidden border-2 transition-all cursor-pointer ${
+                  className={`relative w-20 h-20 shrink-0 rounded-2xl overflow-hidden border-2 transition-all cursor-pointer snap-center ${
                     selectedImage === idx
                       ? 'border-tani-600 ring-2 ring-tani-200 scale-95'
                       : 'border-stone-200 opacity-70 hover:opacity-100'

@@ -36,6 +36,8 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const category = searchParams.get('category');
     const featured = searchParams.get('featured');
+    const page = parseInt(searchParams.get('page') || '1', 10);
+    const limit = parseInt(searchParams.get('limit') || '1000', 10); // default high for backward compatibility
 
     let q = supabase.from('products').select('*').order('sort_order', { ascending: true }).order('name', { ascending: true });
 
@@ -44,6 +46,12 @@ export async function GET(req: NextRequest) {
     }
     if (featured === '1') {
       q = q.eq('featured', true);
+    }
+
+    if (limit && page) {
+      const from = (page - 1) * limit;
+      const to = from + limit - 1;
+      q = q.range(from, to);
     }
 
     const { data, error } = await q;

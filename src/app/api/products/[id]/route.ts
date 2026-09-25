@@ -5,54 +5,7 @@ import { Product } from '@/types/product';
 
 interface Ctx { params: { id: string } }
 
-interface ProductRow {
-  id: string;
-  slug: string;
-  name: string;
-  category: Product['category'];
-  price: number;
-  unit: string;
-  min_order: number | null;
-  stock_label: Product['stock_label'];
-  is_available: number;
-  featured: number;
-  tag: string | null;
-  weight_kg: number | null;
-  images: string;
-  active_ingredients: string | null;
-  short_desc: string;
-  description: string;
-  composition: string;
-  usage_text: string;
-  dosage: string | null;
-  suitable_crops: string | null;
-}
-
-function rowToProduct(row: ProductRow): Product {
-  const parse = (v: any) => (typeof v === 'string' ? (v ? JSON.parse(v) : undefined) : v);
-  return {
-    id: row.id,
-    slug: row.slug,
-    name: row.name,
-    category: row.category,
-    price: row.price,
-    unit: row.unit,
-    minOrder: row.min_order ?? undefined,
-    stock_label: row.stock_label,
-    isAvailable: Boolean(row.is_available),
-    featured: Boolean(row.featured),
-    tag: row.tag ?? undefined,
-    weightKg: row.weight_kg ?? undefined,
-    images: parse(row.images) || [],
-    activeIngredients: parse(row.active_ingredients),
-    short_desc: row.short_desc,
-    description: row.description,
-    composition: row.composition,
-    usage: row.usage_text,
-    dosage: row.dosage ?? undefined,
-    suitableCrops: parse(row.suitable_crops),
-  };
-}
+import { rowToProduct } from '@/utils/productMapper';
 
 function authCheck(req: NextRequest) {
   return req.headers.get('x-admin-pin') === process.env.ADMIN_PIN;
