@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+
 import { Search, X, ArrowUpDown, FlaskConical, ChevronDown } from 'lucide-react';
 import categoriesData from '@/data/categories.json';
 
@@ -110,11 +111,10 @@ export const SearchAndFilter: React.FC<SearchAndFilterProps> = ({
               key={cat.id}
               onClick={() => setSelectedCategory(cat.id)}
               type="button"
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
-                isSelected
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${isSelected
                   ? 'bg-tani-700 text-white shadow-xs'
                   : 'bg-stone-100 hover:bg-stone-200 text-stone-700'
-              }`}
+                }`}
             >
               {cat.shortName}
             </button>
@@ -143,17 +143,15 @@ export const SearchAndFilter: React.FC<SearchAndFilterProps> = ({
               )}
             </div>
             <ChevronDown
-              className={`w-4 h-4 text-stone-400 transition-transform duration-300 ${
-                ingredientOpen ? 'rotate-180' : ''
-              }`}
+              className={`w-4 h-4 text-stone-400 transition-transform duration-300 ${ingredientOpen ? 'rotate-180' : ''
+                }`}
             />
           </button>
 
           {/* Collapsible content */}
           <div
-            className={`overflow-hidden transition-all duration-300 ${
-              ingredientOpen ? 'max-h-[400px] mt-3' : 'max-h-0'
-            }`}
+            className={`overflow-hidden transition-all duration-300 ${ingredientOpen ? 'max-h-[400px] mt-3' : 'max-h-0'
+              }`}
           >
             <div className="flex flex-wrap gap-1.5">
               {allIngredients.map((ing) => {
@@ -163,11 +161,10 @@ export const SearchAndFilter: React.FC<SearchAndFilterProps> = ({
                     key={ing}
                     onClick={() => toggleIngredient(ing)}
                     type="button"
-                    className={`px-2.5 py-1 rounded-full text-[11px] font-semibold whitespace-nowrap transition-all cursor-pointer border ${
-                      isSelected
+                    className={`px-2.5 py-1 rounded-full text-[11px] font-semibold whitespace-nowrap transition-all cursor-pointer border ${isSelected
                         ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
                         : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
-                    }`}
+                      }`}
                   >
                     {isSelected && <span className="mr-1">✓</span>}
                     {ing}
