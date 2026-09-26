@@ -3,11 +3,18 @@ import { Product } from '@/types/product';
 export function rowToProduct(row: Record<string, unknown>): Product {
   const parse = (v: unknown) => {
     if (Array.isArray(v)) return v;
-    try {
-      return JSON.parse(String(v || '[]'));
-    } catch {
-      return [];
+    if (typeof v === 'string') {
+      try {
+        return JSON.parse(v || '[]');
+      } catch {
+        // If it's a plain URL string (e.g. from old DB), wrap it in an array
+        if (v.startsWith('http') || v.startsWith('/')) {
+          return [v];
+        }
+        return [];
+      }
     }
+    return [];
   };
 
   return {
