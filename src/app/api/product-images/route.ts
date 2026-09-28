@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
 const BUCKET = 'product-images';
+const STASH_FOLDER = 'stash';
+const STASH_MAGIC_ID = '_stash_';
 
 function getAdminSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -46,23 +48,51 @@ export async function POST(req: NextRequest) {
   try {
     const form = await req.formData();
     const productId = String(form.get('productId') || '');
+    const useStashedUrl = String(form.get('useStashedUrl') || '');
     const fileName = safeFilePart(String(form.get('fileName') || 'produk.webp'));
     const file = form.get('image');
 
-    if (!productId || typeof file !== 'object' || file === null) {
+    const supabase = getAdminSupabase();
+    await supabase.storage.createBucket(BUCKET, { public: true }).catch(() => null);
+
+    if (useStashedUrl) {
+      if (!productId || productId === STASH_MAGIC_ID) {
+        return NextResponse.json({ error: 'ProductId tidak valid untuk useStashedUrl' }, { status: 400 });
+      }
+
+      const { data: row, error: readError } = await supabase
+        .from('products')
+        .select('images')
+        .eq('id', productId)
+        .single();
+      if (readError) throw readError;
+
+      const images = [...parseImages(row?.images), useStashedUrl];
+      const { error: updateError } = await supabase
+        .from('products')
+        .update({ images })
+        .eq('id', productId);
+      if (updateError) throw updateError;
+
+      return NextResponse.json({ url: useStashedUrl });
+    }
+
+    if (!productId) {
       return NextResponse.json({ error: 'Produk atau gambar belum dipilih' }, { status: 400 });
     }
-    // TypeScript check: file is Blob/File, safely check type
+
+    const isStash = productId === STASH_MAGIC_ID;
+
+    if (typeof file !== 'object' || file === null) {
+      return NextResponse.json({ error: 'Gambar belum dipilih' }, { status: 400 });
+    }
     const fileObj = file as Blob;
     if (fileObj.type !== 'image/webp') {
       return NextResponse.json({ error: 'File harus WebP' }, { status: 400 });
     }
 
-    const supabase = getAdminSupabase();
-
-    await supabase.storage.createBucket(BUCKET, { public: true }).catch(() => null);
-
-    const path = `${safeFilePart(productId)}/${Date.now()}-${fileName}`;
+    const folderPath = isStash ? STASH_FOLDER : safeFilePart(productId);
+    const path = `${folderPath}/${Date.now()}-${fileName}`;
     const { error: uploadError } = await supabase.storage
       .from(BUCKET)
       .upload(path, file, { contentType: 'image/webp', upsert: true });
@@ -71,6 +101,10 @@ export async function POST(req: NextRequest) {
 
     const { data: publicData } = supabase.storage.from(BUCKET).getPublicUrl(path);
     const publicUrl = publicData.publicUrl;
+
+    if (isStash) {
+      return NextResponse.json({ url: publicUrl, stashed: true });
+    }
 
     const { data: row, error: readError } = await supabase
       .from('products')
