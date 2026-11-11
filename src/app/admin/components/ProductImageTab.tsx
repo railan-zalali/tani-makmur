@@ -308,8 +308,14 @@ export function ProductImageTab({ products, setProducts, pin, flash }: ProductIm
         const body = await res.json();
         throw new Error(body.error || 'Gagal menghapus');
       }
+      const body = await res.json().catch(() => ({} as { strippedFrom?: number }));
       setStashedImages((prev) => prev.filter((s) => s.name !== stashed.name));
       if (selectedStashName === stashed.name) setSelectedStashName('');
+      flash(
+        body.strippedFrom
+          ? `${stashed.name} dihapus — ${body.strippedFrom} referensi gambar ikut dibersihkan dari produk`
+          : `${stashed.name} dihapus dari sistem`
+      );
     } catch (e: unknown) {
       flash(e instanceof Error ? e.message : 'Gagal menghapus', true);
     }

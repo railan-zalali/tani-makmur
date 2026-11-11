@@ -75,7 +75,29 @@ export async function DELETE(req: NextRequest) {
     const { error } = await supabase.storage.from(BUCKET).remove([path]);
     if (error) throw error;
 
-    return NextResponse.json({ ok: true, removed: path });
+    // Self-healing: file stash bisa saja sudah ditempel ke produk (yang
+    // disimpan hanya URL publiknya). Bersihkan referensi mati tersebut
+    // dari products.images supaya katalog tidak menampilkan gambar rusak.
+    const marker = `${STASH_FOLDER}/${safeName}`;
+    const { data: rows } = await supabase.from('products').select('id, images');
+    let strippedCount = 0;
+    for (const row of rows || []) {
+      let imgs: unknown[] = Array.isArray(row.images)
+        ? row.images
+        : (() => { try { return JSON.parse(String(row.images || '[]')); } catch { return []; } })();
+      if (!Array.isArray(imgs)) imgs = [];
+      const filtered = imgs.filter((u) => {
+        const s = String(u ?? '');
+        try { return !decodeURIComponent(s).includes(marker); }
+        catch { return !s.includes(marker); }
+      });
+      if (filtered.length !== imgs.length) {
+        strippedCount += imgs.length - filtered.length;
+        await supabase.from('products').update({ images: filtered }).eq('id', row.id);
+      }
+    }
+
+    return NextResponse.json({ ok: true, removed: path, strippedFrom: strippedCount });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Gagal menghapus stash';
     console.error('DELETE /api/product-images/stash error:', err);

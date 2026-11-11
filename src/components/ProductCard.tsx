@@ -17,6 +17,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   const { addToCart } = useCart();
   const { getCategory } = useCategories();
   const [isAdded, setIsAdded] = useState(false);
+  const [imgFailed, setImgFailed] = useState(false);
 
   const handleAddToCart = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -35,10 +36,11 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
       {/* Image Container */}
       <Link href={`/produk/${encodeURIComponent(product.slug)}`} className="block relative aspect-square w-full bg-stone-50 overflow-hidden">
         <Image
-          src={product.images[0] || '/placeholder-product.jpg'}
+          src={imgFailed || !product.images[0] ? '/placeholder-product.jpg' : product.images[0]}
           alt={product.name}
           fill
           sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+          onError={() => setImgFailed(true)}
           className="object-cover transition-transform duration-500 group-hover:scale-110"
         />
         {/* Overlay gradient on hover */}

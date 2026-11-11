@@ -37,6 +37,8 @@ export const ProductDetailClient: React.FC<ProductDetailClientProps> = ({
   const [selectedImage, setSelectedImage] = useState(0);
   const [quantity, setQuantity] = useState(1);
   const [isAdded, setIsAdded] = useState(false);
+  // Gambar yang gagal dimuat (URL mati) → ditampilkan placeholder, bukan kotak rusak.
+  const [failedImages, setFailedImages] = useState<Set<number>>(new Set());
 
   const [emblaRef, emblaApi] = useEmblaCarousel({ loop: true });
 
@@ -104,10 +106,11 @@ export const ProductDetailClient: React.FC<ProductDetailClientProps> = ({
                 product.images.map((img, idx) => (
                   <div className="flex-[0_0_100%] min-w-0 relative aspect-square" key={idx}>
                     <Image
-                      src={img}
+                      src={failedImages.has(idx) ? '/placeholder-product.jpg' : img}
                       alt={`${product.name} - slide ${idx + 1}`}
                       fill
                       priority={idx === 0}
+                      onError={() => setFailedImages((prev) => new Set(prev).add(idx))}
                       className="object-cover"
                     />
                   </div>
@@ -150,7 +153,13 @@ export const ProductDetailClient: React.FC<ProductDetailClientProps> = ({
                       : 'border-stone-200 opacity-70 hover:opacity-100'
                   }`}
                 >
-                  <Image src={img} alt="" fill className="object-cover" />
+                  <Image
+                    src={failedImages.has(idx) ? '/placeholder-product.jpg' : img}
+                    alt=""
+                    fill
+                    onError={() => setFailedImages((prev) => new Set(prev).add(idx))}
+                    className="object-cover"
+                  />
                 </button>
               ))}
             </div>
