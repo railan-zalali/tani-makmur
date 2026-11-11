@@ -6,4 +6,14 @@ const supabaseKey =
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-export const supabase = createClient(supabaseUrl, supabaseKey);
+// Next.js App Router meng-cache respons `fetch` di .next/cache/fetch-cache.
+// Cache ini pernah membuat katalog menyajikan data produk BULANAN LALU
+// (gambar yang diupload belakangan tidak muncul → placeholder),
+// karena cache tidak pernah di-revalidate. Matikan caching untuk SEMUA
+// panggilan Supabase agar katalog/detail/admin selalu membaca data terbaru.
+const supabaseFetch: typeof fetch = (input, init) =>
+  fetch(input, { ...init, cache: 'no-store' });
+
+export const supabase = createClient(supabaseUrl, supabaseKey, {
+  global: { fetch: supabaseFetch },
+});
