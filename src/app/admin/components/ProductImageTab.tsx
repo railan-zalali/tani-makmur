@@ -369,7 +369,7 @@ export function ProductImageTab({ products, setProducts, pin, flash }: ProductIm
         <div className="min-w-0 max-w-[780px]">
           <h2 className="font-black text-xl sm:text-2xl text-stone-900 leading-tight">Gambar Produk</h2>
           <p className="text-sm text-stone-500 mt-1 leading-relaxed">
-            Drop gambar ke produk, atau pilih gambar lalu klik produk tujuan. Simpan sisa gambar ke sistem untuk dilanjutkan nanti.
+            Drop gambar ke produk, atau pilih gambar lalu klik produk tujuan. Produk belum ada di daftar? Klik <span className="font-bold text-stone-600">Simpan</span> untuk menyimpan gambarnya dulu.
           </p>
         </div>
         <div className="flex flex-wrap gap-2 shrink-0">
@@ -486,6 +486,12 @@ export function ProductImageTab({ products, setProducts, pin, flash }: ProductIm
               </div>
             </div>
 
+            {pendingImages.length > 0 && (
+              <p className="px-4 py-2.5 bg-emerald-50/70 border-b border-emerald-100 text-xs text-emerald-800 leading-relaxed">
+                Produk belum ada di daftar? Klik <span className="font-black">Simpan</span> pada gambar — tersimpan di sistem dan bisa ditempel ke produk nanti setelah produk dibuat / di-import.
+              </p>
+            )}
+
             {pendingImages.length === 0 ? (
               <div className="p-10 sm:p-12 text-center">
                 <ImageIcon className="w-12 h-12 text-stone-200 mx-auto mb-3 stroke-[1.5]" />
@@ -546,12 +552,24 @@ export function ProductImageTab({ products, setProducts, pin, flash }: ProductIm
                         </button>
                         <button type="button" onClick={(e) => { e.stopPropagation(); stashOneImage(image.id); }}
                           className="absolute top-2.5 right-2.5 bg-emerald-500 hover:bg-emerald-600 text-white p-2 min-h-[36px] min-w-[36px] rounded-full opacity-0 group-hover:opacity-100 transition-opacity z-20 shadow-md border border-emerald-600 flex items-center justify-center"
-                          title="Simpan ke Sistem">
+                          title="Simpan ke Sistem — tempel ke produk nanti">
                           <Save className="w-5 h-5 stroke-[2]" />
                         </button>
                       </div>
                       <div className="px-3.5 py-2.5 flex items-center justify-between gap-2 border-t border-stone-100">
                         <p className="text-xs font-semibold text-stone-500 truncate flex-1 min-w-0">{image.name}</p>
+                        {selectedImageId === image.id && (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); stashOneImage(image.id); }}
+                            className="inline-flex items-center gap-1.5 text-xs font-black text-white bg-emerald-500 hover:bg-emerald-600 px-3 py-1.5 min-h-[32px] rounded-lg shrink-0 transition-colors border border-emerald-600 shadow-sm disabled:opacity-60"
+                            disabled={isSaving}
+                            title="Produk belum ada di daftar? Simpan dulu — bisa ditempel nanti"
+                          >
+                            {isSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4 stroke-[2]" />}
+                            Simpan
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={(e) => { e.stopPropagation(); URL.revokeObjectURL(image.previewUrl); setPendingImages((prev) => prev.filter((it) => it.id !== image.id)); if (selectedImageId === image.id) setSelectedImageId(''); }}
@@ -567,6 +585,30 @@ export function ProductImageTab({ products, setProducts, pin, flash }: ProductIm
               </div>
             )}
           </div>
+
+          {/* Selected image action bar — untuk produk yang belum ada di daftar */}
+          {selectedImageId && (() => {
+            const selected = pendingImages.find((i) => i.id === selectedImageId);
+            if (!selected) return null;
+            const isSavingSel = savingStashIds.has(selected.id);
+            return (
+              <div className="bg-white border-2 border-emerald-200 rounded-2xl p-3 flex flex-wrap items-center gap-3 shadow-sm">
+                <button
+                  type="button"
+                  onClick={() => stashOneImage(selected.id)}
+                  disabled={isSavingSel}
+                  className="inline-flex items-center gap-2 text-sm font-black text-white bg-emerald-500 hover:bg-emerald-600 px-4 py-2.5 min-h-[44px] rounded-xl transition-colors border border-emerald-600 shadow-sm disabled:opacity-60 shrink-0"
+                  title="Simpan gambar ke sistem storage"
+                >
+                  {isSavingSel ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5 stroke-[2]" />}
+                  Simpan Gambar
+                </button>
+                <p className="text-xs text-stone-500 leading-relaxed flex-1 min-w-[200px]">
+                  Produk belum ada di daftar? Simpan dulu ke sistem — nanti bisa ditempel dari panel <span className="font-bold text-stone-600">Tersimpan di Sistem</span> setelah produk dibuat / di-import.
+                </p>
+              </div>
+            );
+          })()}
 
           {/* Stashed grid */}
           <div className="bg-white rounded-3xl border-2 border-stone-200 overflow-hidden flex flex-col shadow-sm w-full">
