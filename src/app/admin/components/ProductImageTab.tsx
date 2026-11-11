@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Product } from '@/types/product';
-import { Upload, ImageIcon, RefreshCw, ZoomIn, X, Save, Trash2, HardDrive, Search, SlidersHorizontal } from 'lucide-react';
+import { Upload, ImageIcon, RefreshCw, ZoomIn, X, Save, Trash2, HardDrive, Search, SlidersHorizontal, Plus, Sparkles, AlertTriangle, Check } from 'lucide-react';
 import { convertToWebp, applyWatermark } from '@/utils/imageUtils';
+import { useCategories } from '@/context/CategoryContext';
 
 export type PendingProductImage = {
   id: string;
@@ -36,6 +37,28 @@ function webpName(name: string) {
   return `${generateId(fileBaseName(name)) || 'produk'}.webp`;
 }
 
+/**
+ * Skor kemiripan nama produk (0–1) via Dice coefficient bigram.
+ * Tahan typo ringan (cth: "abacel" ≈ "abacetil") + bonus substring.
+ */
+function similarityScore(a: string, b: string): number {
+  const norm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
+  const x = norm(a), y = norm(b);
+  if (!x || !y) return 0;
+  if (x === y) return 1;
+  if (x.includes(y) || y.includes(x)) return 0.95;
+  const grams = (s: string) => {
+    const set = new Set<string>();
+    for (let i = 0; i < s.length - 1; i++) set.add(s.slice(i, i + 2));
+    return set;
+  };
+  const gx = grams(x), gy = grams(y);
+  if (gx.size === 0 || gy.size === 0) return 0;
+  let inter = 0;
+  gx.forEach((g) => { if (gy.has(g)) inter++; });
+  return (2 * inter) / (gx.size + gy.size);
+}
+
 async function convertImageToWebp(file: File): Promise<PendingProductImage> {
   try {
     const webpBlob = await convertToWebp(file, 0.82);
@@ -61,6 +84,22 @@ interface ProductImageTabProps {
 
 type ImageFilterMode = 'all' | 'no-images' | 'has-images';
 type LeftTab = 'queue' | 'stash';
+
+type CreateFormState = {
+  name: string;
+  category: string;
+  price: string;
+  unit: string;
+  minOrder: string;
+  stock_label: Product['stock_label'];
+  short_desc: string;
+  description: string;
+};
+
+const EMPTY_CREATE_FORM: CreateFormState = {
+  name: '', category: '', price: '', unit: '', minOrder: '',
+  stock_label: 'Tersedia', short_desc: '', description: '',
+};
 
 const WM_STORAGE_KEY = 'tani_admin_watermark';
 
@@ -111,6 +150,7 @@ export function ProductImageTab({ products, setProducts, pin, flash }: ProductIm
 
   const imageFileRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
 
   const loadStashedImages = useCallback(async () => {
     setLoadingStash(true);
@@ -142,6 +182,15 @@ export function ProductImageTab({ products, setProducts, pin, flash }: ProductIm
     mq.addEventListener('change', update);
     return () => mq.removeEventListener('change', update);
   }, []);
+
+  const { categories } = useCategories();
+  const [showCreate, setShowCreate] = useState(false);
+  const [createForm, setCreateForm] = useState<CreateFormState>(EMPTY_CREATE_FORM);
+  const [touchedFields, setTouchedFields] = useState<Set<string>>(new Set());
+  const [savingCreate, setSavingCreate] = useState(false);
+  const [appliedSuggestion, setAppliedSuggestion] = useState<{
+    productId: string; productName: string; score: number; nameApplied: boolean;
+  } | null>(null);
 
   const searchTokens = imageSearch
     .split(',')
@@ -369,6 +418,148 @@ export function ProductImageTab({ products, setProducts, pin, flash }: ProductIm
     }
   };
 
+  // ── Tambah produk baru ──
+  const setCreateField = (field: keyof CreateFormState, value: string) => {
+    setCreateForm((prev) => ({ ...prev, [field]: value }) as CreateFormState);
+    setTouchedFields((prev) => new Set(prev).add(field));
+  };
+
+  const openCreate = (namePrefill = '') => {
+    setCreateForm({ ...EMPTY_CREATE_FORM, name: namePrefill, category: categories[0]?.id ?? 'pupuk-kimia' });
+    setTouchedFields(new Set());
+    setAppliedSuggestion(null);
+    setShowCreate(true);
+  };
+
+  const createSuggestions = (() => {
+    const q = createForm.name.trim().toLowerCase();
+    if (q.length < 2) return [];
+    return products
+      .map((p) => {
+        // Bandingkan dengan nama lengkap DAN per kata, agar "abacel" tetap
+        // mengenali "Abacil 100 EC 100ml" (kata tambahan tidak mengencerkan skor).
+        const n = p.name.toLowerCase();
+        const viaSub = n.includes(q) || q.includes(n);
+        let score = similarityScore(q, p.name);
+        for (const tok of n.split(/[\s/,\-()]+/)) {
+          if (tok) score = Math.max(score, similarityScore(q, tok));
+        }
+        if (viaSub) score = Math.max(score, 0.9);
+        return { p, score, viaSub };
+      })
+      .filter((x) => x.score >= 0.5)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5);
+  })();
+
+  const exactDuplicate = createForm.name.trim().length > 1
+    ? products.find((p) => p.name.trim().toLowerCase() === createForm.name.trim().toLowerCase())
+    : undefined;
+
+  /**
+   * Isi kolom dari data produk serupa — kolom yang sudah diisi manual tidak diubah.
+   * Klik chip (manual): nama juga di-autocomplete dari produk terpilih, kursor
+   * ditaruh di akhir agar varian mudah disunting (cth: "…500 ml" → "…100 ml").
+   * Auto (silent): hanya kolom lain; nama yang sedang diketik tidak diganggu.
+   */
+  const applySuggestion = (p: Product, score: number, silent = false) => {
+    setCreateForm((prev) => ({
+      ...prev,
+      name: silent ? prev.name : p.name,
+      category: touchedFields.has('category') ? prev.category : (p.category || prev.category),
+      price: touchedFields.has('price') ? prev.price : (p.price ? String(p.price) : prev.price),
+      unit: touchedFields.has('unit') ? prev.unit : (p.unit || prev.unit),
+      minOrder: touchedFields.has('minOrder') ? prev.minOrder : (p.minOrder != null && p.minOrder > 0 ? String(p.minOrder) : prev.minOrder),
+      stock_label: touchedFields.has('stock_label') ? prev.stock_label : p.stock_label,
+      short_desc: touchedFields.has('short_desc') ? prev.short_desc : (p.short_desc || prev.short_desc),
+      description: touchedFields.has('description') ? prev.description : (p.description || prev.description),
+    }));
+    setAppliedSuggestion({ productId: p.id, productName: p.name, score, nameApplied: !silent });
+    if (!silent) {
+      flash(`Nama & isian diambil dari "${p.name}" — sesuaikan bila ini varian berbeda`);
+      // Taruh kursor di akhir nama agar pengguna langsung bisa menyunting.
+      requestAnimationFrame(() => {
+        nameRef.current?.focus();
+        const len = nameRef.current?.value.length ?? 0;
+        nameRef.current?.setSelectionRange(len, len);
+      });
+    }
+  };
+
+  // Auto-saran: sekali per sesi modal, hanya untuk kemiripan asli (typo, ≥85%).
+  // Nama yang merupakan substring produk existing (mis. mengetik varian baru
+  // "Curacron 500 EC" saat ada "Curacron 500 EC, 500 ml") TIDAK auto-isi —
+  // cukup tampil sebagai chip yang bisa diklik, agar isian tidak terus
+  // ditimpa selama nama varian masih diketik.
+  useEffect(() => {
+    if (!showCreate || appliedSuggestion) return;
+    const q = createForm.name.trim().toLowerCase();
+    if (q.length < 2) return;
+    const top = createSuggestions[0];
+    if (top && top.score >= 0.85 && !top.viaSub) {
+      applySuggestion(top.p, top.score, true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showCreate, createForm.name, createSuggestions, appliedSuggestion]);
+
+  const submitCreate = async () => {
+    const name = createForm.name.trim();
+    if (!name) {
+      flash('Nama produk wajib diisi', true);
+      return;
+    }
+    const id = generateId(name);
+    if (products.some((p) => p.id === id)) {
+      flash('Produk dengan nama ini sudah ada di daftar', true);
+      return;
+    }
+    const category = createForm.category || categories[0]?.id || 'pupuk-kimia';
+
+    setSavingCreate(true);
+    try {
+      const newProduct: Product = {
+        id,
+        slug: id,
+        name,
+        category,
+        price: Number(createForm.price) || 0,
+        unit: createForm.unit.trim() || 'satuan',
+        minOrder: createForm.minOrder ? Number(createForm.minOrder) : undefined,
+        stock_label: createForm.stock_label,
+        isAvailable: true,
+        featured: false,
+        images: [],
+        short_desc: createForm.short_desc.trim(),
+        description: createForm.description.trim(),
+        composition: '',
+        usage: '',
+      };
+
+      const res = await fetch('/api/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-pin': pin },
+        body: JSON.stringify(newProduct),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || 'Gagal menyimpan produk');
+
+      setProducts((prev) => [...prev, newProduct]);
+      setShowCreate(false);
+      flash(`Produk "${name}" ditambahkan`);
+
+      // Tempel gambar terpilih (pending atau stash) ke produk yang baru dibuat.
+      if (selectedImageId) {
+        await attachImageToProduct(newProduct, selectedImageId);
+      } else if (selectedStashName) {
+        await useStashedOnProduct(newProduct, selectedStashName);
+      }
+    } catch (e: unknown) {
+      flash(e instanceof Error ? e.message : 'Gagal menyimpan produk', true);
+    } finally {
+      setSavingCreate(false);
+    }
+  };
+
   const selectedPending = pendingImages.find((i) => i.id === selectedImageId);
   const selectedStash = stashedImages.find((s) => s.name === selectedStashName);
 
@@ -505,12 +696,213 @@ export function ProductImageTab({ products, setProducts, pin, flash }: ProductIm
           )}
           <button
             type="button"
+            onClick={() => openCreate()}
+            className="inline-flex items-center gap-1.5 text-sm font-bold text-tani-700 bg-tani-50 hover:bg-tani-100 px-3 py-2.5 min-h-[44px] rounded-xl transition-colors border border-tani-200 shrink-0"
+            title="Buat produk baru dari gambar terpilih"
+          >
+            <Plus className="w-5 h-5 stroke-[2.5]" />
+            <span className="hidden sm:inline">Produk Baru</span>
+          </button>
+          <button
+            type="button"
             onClick={() => { setSelectedImageId(''); setSelectedStashName(''); }}
             className="p-2 min-h-[40px] min-w-[40px] text-stone-400 hover:text-stone-700 rounded-xl hover:bg-stone-100 transition-colors shrink-0 flex items-center justify-center"
             aria-label="Batal pilih gambar"
           >
             <X className="w-5 h-5 stroke-[2.25]" />
           </button>
+        </div>
+      )}
+
+      {/* ── Modal: Tambah Produk Baru ── */}
+      {showCreate && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-4"
+          onClick={() => { if (!savingCreate) setShowCreate(false); }}
+        >
+          <div
+            className="bg-white w-full sm:max-w-xl rounded-t-2xl sm:rounded-2xl shadow-2xl border border-stone-200 max-h-[92vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header modal */}
+            <div className="px-5 py-4 border-b border-stone-200 flex items-start justify-between gap-3 shrink-0">
+              <div className="min-w-0">
+                <h3 className="font-black text-lg text-stone-900 leading-tight">Tambah Produk Baru</h3>
+                <p className="text-xs text-stone-500 mt-0.5 leading-relaxed">
+                  {selectedPending
+                    ? 'Produk baru akan otomatis mendapat gambar yang Anda pilih.'
+                    : selectedStash
+                      ? 'Gambar tersimpan yang terpilih akan otomatis ditempel ke produk baru.'
+                      : 'Isi data minimal — detail lengkap bisa dilengkapi lewat halaman Edit nanti.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCreate(false)}
+                disabled={savingCreate}
+                className="p-2 min-h-[40px] min-w-[40px] text-stone-400 hover:text-stone-700 rounded-xl hover:bg-stone-100 transition-colors flex items-center justify-center shrink-0"
+                aria-label="Tutup"
+              >
+                <X className="w-5 h-5 stroke-[2.25]" />
+              </button>
+            </div>
+
+            {/* Body modal */}
+            <div className="p-5 space-y-4 overflow-y-auto">
+              {/* Nama + saran pintar */}
+              <div>
+                <label className="block text-xs font-black text-stone-600 uppercase tracking-wide mb-1.5">Nama Produk *</label>
+                <input
+                  value={createForm.name}
+                  onChange={(e) => setCreateField('name', e.target.value)}
+                  placeholder="cth: Abamectin 18 EC 100ml"
+                  ref={nameRef}
+                  autoFocus
+                  className="w-full px-3.5 py-2.5 min-h-[44px] border border-stone-200 rounded-xl text-sm font-semibold text-stone-800 focus:outline-none focus:ring-4 focus:ring-tani-100 focus:border-tani-500 transition-all"
+                />
+                {exactDuplicate && (
+                  <p className="mt-2 flex items-start gap-1.5 text-[11px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2 leading-relaxed">
+                    <AlertTriangle className="w-4 h-4 shrink-0 mt-px" />
+                    Nama ini sudah ada di daftar: &quot;{exactDuplicate.name}&quot;. Pastikan ini memang produk berbeda.
+                  </p>
+                )}
+                {createSuggestions.length > 0 && (
+                  <div className="mt-2.5">
+                    <p className="text-[11px] font-bold text-stone-500 mb-1.5">Produk serupa ditemukan — klik untuk mengisi kolom lain otomatis:</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {createSuggestions.map(({ p, score }) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => applySuggestion(p, score)}
+                          className={`inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1.5 min-h-[32px] rounded-lg border transition-colors ${
+                            appliedSuggestion?.productId === p.id
+                              ? 'bg-tani-100 text-tani-800 border-tani-400'
+                              : 'bg-stone-50 text-stone-700 border-stone-200 hover:border-tani-300 hover:bg-tani-50'
+                          }`}
+                        >
+                          <Sparkles className="w-3.5 h-3.5 text-tani-600 shrink-0" />
+                          <span className="max-w-[200px] truncate">{p.name}</span>
+                          <span className="text-[10px] font-black text-stone-400 tabular-nums">{Math.round(score * 100)}%</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {appliedSuggestion && (
+                  <p className="mt-2 text-[11px] font-medium text-emerald-700 flex items-start gap-1.5 leading-relaxed">
+                    <Check className="w-4 h-4 shrink-0 mt-px" />
+                    {appliedSuggestion.nameApplied ? 'Nama & isian diambil dari' : 'Isian otomatis dari'}
+                    &nbsp;&quot;{appliedSuggestion.productName}&quot; ({Math.round(appliedSuggestion.score * 100)}% mirip). Sesuaikan nama/satuan/harga bila ini varian berbeda — kolom yang sudah Anda isi manual tidak diubah.
+                  </p>
+                )}
+              </div>
+
+              {/* Kategori */}
+              <div>
+                <label className="block text-xs font-black text-stone-600 uppercase tracking-wide mb-1.5">Kategori</label>
+                <select
+                  value={createForm.category}
+                  onChange={(e) => setCreateField('category', e.target.value)}
+                  className="w-full px-3.5 py-2.5 min-h-[44px] border border-stone-200 rounded-xl text-sm font-semibold text-stone-800 bg-white focus:outline-none focus:ring-4 focus:ring-tani-100 focus:border-tani-500 transition-all"
+                >
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Harga / Satuan / Min. Order */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-black text-stone-600 uppercase tracking-wide mb-1.5">Harga (Rp)</label>
+                  <input
+                    type="number" min="0" inputMode="numeric"
+                    value={createForm.price}
+                    onChange={(e) => setCreateField('price', e.target.value)}
+                    placeholder="0"
+                    className="w-full px-3.5 py-2.5 min-h-[44px] border border-stone-200 rounded-xl text-sm font-semibold text-stone-800 focus:outline-none focus:ring-4 focus:ring-tani-100 focus:border-tani-500 transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-black text-stone-600 uppercase tracking-wide mb-1.5">Satuan</label>
+                  <input
+                    value={createForm.unit}
+                    onChange={(e) => setCreateField('unit', e.target.value)}
+                    placeholder="cth: botol (1L)"
+                    className="w-full px-3.5 py-2.5 min-h-[44px] border border-stone-200 rounded-xl text-sm font-semibold text-stone-800 focus:outline-none focus:ring-4 focus:ring-tani-100 focus:border-tani-500 transition-all"
+                  />
+                </div>
+                <div className="col-span-2 sm:col-span-1">
+                  <label className="block text-xs font-black text-stone-600 uppercase tracking-wide mb-1.5">Min. Order</label>
+                  <input
+                    type="number" min="1" inputMode="numeric"
+                    value={createForm.minOrder}
+                    onChange={(e) => setCreateField('minOrder', e.target.value)}
+                    placeholder="cth: 1"
+                    className="w-full px-3.5 py-2.5 min-h-[44px] border border-stone-200 rounded-xl text-sm font-semibold text-stone-800 focus:outline-none focus:ring-4 focus:ring-tani-100 focus:border-tani-500 transition-all"
+                  />
+                </div>
+              </div>
+
+              {/* Status stok */}
+              <div>
+                <label className="block text-xs font-black text-stone-600 uppercase tracking-wide mb-1.5">Status Stok</label>
+                <select
+                  value={createForm.stock_label}
+                  onChange={(e) => setCreateField('stock_label', e.target.value)}
+                  className="w-full px-3.5 py-2.5 min-h-[44px] border border-stone-200 rounded-xl text-sm font-semibold text-stone-800 bg-white focus:outline-none focus:ring-4 focus:ring-tani-100 focus:border-tani-500 transition-all"
+                >
+                  <option value="Tersedia">Tersedia</option>
+                  <option value="Stok Menipis">Stok Menipis</option>
+                  <option value="Pre-Order">Pre-Order</option>
+                </select>
+              </div>
+
+              {/* Deskripsi */}
+              <div>
+                <label className="block text-xs font-black text-stone-600 uppercase tracking-wide mb-1.5">Deskripsi Singkat</label>
+                <textarea
+                  rows={2}
+                  value={createForm.short_desc}
+                  onChange={(e) => setCreateField('short_desc', e.target.value)}
+                  placeholder="Tampil di kartu produk katalog"
+                  className="w-full px-3.5 py-2.5 border border-stone-200 rounded-xl text-sm font-medium text-stone-800 focus:outline-none focus:ring-4 focus:ring-tani-100 focus:border-tani-500 transition-all resize-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-black text-stone-600 uppercase tracking-wide mb-1.5">Deskripsi Lengkap</label>
+                <textarea
+                  rows={3}
+                  value={createForm.description}
+                  onChange={(e) => setCreateField('description', e.target.value)}
+                  placeholder="Detail produk di halaman katalog"
+                  className="w-full px-3.5 py-2.5 border border-stone-200 rounded-xl text-sm font-medium text-stone-800 focus:outline-none focus:ring-4 focus:ring-tani-100 focus:border-tani-500 transition-all resize-none"
+                />
+              </div>
+            </div>
+
+            {/* Footer modal */}
+            <div className="px-5 py-4 border-t border-stone-200 flex items-center justify-end gap-2 shrink-0 bg-stone-50/70 rounded-b-2xl">
+              <button
+                type="button"
+                onClick={() => setShowCreate(false)}
+                disabled={savingCreate}
+                className="px-4 py-2.5 min-h-[44px] text-sm font-bold text-stone-600 hover:text-stone-800 rounded-xl hover:bg-stone-100 transition-colors"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={submitCreate}
+                disabled={savingCreate || !createForm.name.trim()}
+                className="inline-flex items-center gap-2 px-5 py-2.5 min-h-[44px] bg-tani-700 hover:bg-tani-800 text-white text-sm font-black rounded-xl shadow-sm transition-colors disabled:opacity-60"
+              >
+                {savingCreate ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4 stroke-[2.5]" />}
+                Simpan Produk
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -816,12 +1208,23 @@ export function ProductImageTab({ products, setProducts, pin, flash }: ProductIm
                 <span className="mx-1">/</span>
                 <span className="tabular-nums font-bold text-stone-700">{products.length}</span>
               </p>
-              {productHasActiveDropTarget && (
-                <span className="inline-flex items-center gap-1.5 text-xs font-bold text-tani-700 bg-tani-50 px-2.5 py-1 rounded-full border border-tani-200">
-                  <span className="w-2 h-2 rounded-full bg-tani-500 animate-pulse shrink-0"></span>
-                  Gambar aktif — klik produk untuk tempel
-                </span>
-              )}
+              <div className="flex items-center gap-2 ml-auto">
+                {productHasActiveDropTarget && (
+                  <span className="inline-flex items-center gap-1.5 text-xs font-bold text-tani-700 bg-tani-50 px-2.5 py-1 rounded-full border border-tani-200">
+                    <span className="w-2 h-2 rounded-full bg-tani-500 animate-pulse shrink-0"></span>
+                    Gambar aktif — klik produk untuk tempel
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => openCreate()}
+                  className="inline-flex items-center gap-1.5 text-xs font-bold text-tani-700 bg-tani-50 hover:bg-tani-100 px-3 py-1.5 min-h-[34px] rounded-lg border border-tani-200 transition-colors"
+                  title="Tambah produk baru"
+                >
+                  <Plus className="w-4 h-4 stroke-[2.5]" />
+                  Produk Baru
+                </button>
+              </div>
             </div>
 
             <div className="divide-y divide-stone-100 overflow-y-auto max-h-[70vh] lg:max-h-[640px]">
@@ -830,6 +1233,14 @@ export function ProductImageTab({ products, setProducts, pin, flash }: ProductIm
                   <ImageIcon className="w-12 h-12 text-stone-200 mx-auto mb-3 stroke-[1.5]" />
                   <p className="text-base font-semibold text-stone-500">Produk tidak ditemukan</p>
                   <p className="text-xs text-stone-400 mt-1.5">Coba kata kunci lain atau ubah filter di atas</p>
+                  <button
+                    type="button"
+                    onClick={() => openCreate(imageSearch.split(',')[0]?.trim() ?? '')}
+                    className="mt-4 inline-flex items-center gap-1.5 text-sm font-bold text-white bg-tani-700 hover:bg-tani-800 px-4 py-2.5 min-h-[44px] rounded-xl transition-colors shadow-sm"
+                  >
+                    <Plus className="w-4 h-4 stroke-[2.5]" />
+                    Tambah Produk Baru
+                  </button>
                 </div>
               ) : filteredProducts.map((product) => {
                 const imageCount = product.images?.length ?? 0;
